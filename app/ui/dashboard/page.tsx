@@ -1,20 +1,21 @@
-import { TopNav } from "../components/dashboard/TopNav";
-import { Sidebar } from "../components/dashboard/Sidebar";
-import { DashboardHeader } from "../components/dashboard/DashboardHeader";
-import { StatCard } from "../components/dashboard/StatCard";
-import { LineChartCard } from "../components/dashboard/LineChartCard";
-import { BarChartCard } from "../components/dashboard/BarChartCard";
-import { NotificationsPanel } from "../components/dashboard/NotificationsPanel";
-import { RecentActivityTable } from "../components/dashboard/RecentActivityTable";
-import { MobileBottomNav } from "../components/dashboard/MobileBottomNav";
+import { TopNav } from "@/components/dashboard/TopNav";
+import { Sidebar } from "@/components/dashboard/Sidebar";
+import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
+import { StatCard } from "@/components/dashboard/StatCard";
+import { LineChartCard } from "@/components/dashboard/LineChartCard";
+import { BarChartCard } from "@/components/dashboard/BarChartCard";
+import { NotificationsPanel } from "@/components/dashboard/NotificationsPanel";
+import { RecentActivityTable } from "@/components/dashboard/RecentActivityTable";
+import { MobileBottomNav } from "@/components/dashboard/MobileBottomNav";
+
 import {
+    stats,
     classScores,
     notifications,
     recentActivities,
-    stats,
-} from "../lib/dashboard-data";
+} from "@/lib/dashboard-data";
 
-export default function HomePage() {
+export default function DashboardPage() {
     return (
         <div className="min-h-screen bg-[#f8f6f6] text-slate-900">
             <TopNav />
@@ -38,6 +39,7 @@ export default function HomePage() {
 
                     <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
                         <NotificationsPanel items={notifications} />
+
                         <div className="xl:col-span-2">
                             <RecentActivityTable items={recentActivities} />
                         </div>
