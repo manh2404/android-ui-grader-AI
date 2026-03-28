@@ -4,7 +4,7 @@ export interface IUser extends Document {
     name: string;
     email: string;
     password: string;
-    role: "teacher" | "admin" | "student";
+    role: "teacher" | "admin" | "User";
     isVerified: boolean;
     avatar?: string;
     lastLoginAt?: Date;
@@ -35,8 +35,8 @@ const UserSchema = new Schema<IUser>(
         },
         role: {
             type: String,
-            enum: ["admin", "teacher", "student"],
-            default: "student",
+            enum: ["admin", "teacher", "User"],
+            default: "User",
         },
         isVerified: {
             type: Boolean,

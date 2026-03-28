@@ -31,13 +31,13 @@ const ClassroomSchema = new Schema(
         },
         teacherId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "student",
+            ref: "User",
             required: true,
         },
         studentIds: [
             {
                 type: mongoose.Schema.Types.ObjectId,
-                ref: "student",
+                ref: "User",
             },
         ],
         status: {
