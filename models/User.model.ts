@@ -1,15 +1,63 @@
-import { Schema, model, models } from "mongoose";
+import mongoose, { Document, Model, Schema } from "mongoose";
 
-const UserSchema = new Schema(
+export interface IUser extends Document {
+    name: string;
+    email: string;
+    password: string;
+    role: "user" | "admin";
+    isVerified: boolean;
+    avatar?: string;
+    lastLoginAt?: Date;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+const UserSchema = new Schema<IUser>(
     {
-        name: { type: String, required: true },
-        email: { type: String, required: true, unique: true },
-        role: { type: String, default: "student" },
+        name: {
+            type: String,
+            required: [true, "Tên là bắt buộc"],
+            trim: true,
+            minlength: [2, "Tên phải có ít nhất 2 ký tự"],
+            maxlength: [50, "Tên không được vượt quá 50 ký tự"],
+        },
+        email: {
+            type: String,
+            required: [true, "Email là bắt buộc"],
+            unique: true,
+            trim: true,
+            lowercase: true,
+        },
+        password: {
+            type: String,
+            required: [true, "Mật khẩu là bắt buộc"],
+            minlength: [6, "Mật khẩu phải có ít nhất 6 ký tự"],
+        },
+        role: {
+            type: String,
+            enum: ["user", "admin"],
+            default: "user",
+        },
+        isVerified: {
+            type: Boolean,
+            default: false,
+        },
+        avatar: {
+            type: String,
+            default: "",
+        },
+        lastLoginAt: {
+            type: Date,
+        },
     },
     {
         timestamps: true,
-        collection: "users",
     }
 );
 
-export const User = models.User || model("User", UserSchema);
+UserSchema.index({ email: 1 }, { unique: true });
+
+const User: Model<IUser> =
+    mongoose.models.User || mongoose.model<IUser>("User", UserSchema);
+
+export default User;

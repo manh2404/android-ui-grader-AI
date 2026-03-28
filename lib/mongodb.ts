@@ -1,21 +1,34 @@
 import mongoose from "mongoose";
 
-const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI as string;
 
 if (!MONGODB_URI) {
-    throw new Error("Thiếu MONGODB_URI trong .env.local");
+    throw new Error("Thiếu MONGODB_URI trong file .env.local");
 }
+
+type MongooseCache = {
+    conn: typeof mongoose | null;
+    promise: Promise<typeof mongoose> | null;
+};
 
 declare global {
-    var mongoosePromise: Promise<typeof mongoose> | undefined;
+    // eslint-disable-next-line no-var
+    var mongooseCache: MongooseCache | undefined;
 }
 
-export async function connectToDatabase(): Promise<typeof mongoose> {
-    if (!global.mongoosePromise) {
-        global.mongoosePromise = mongoose.connect(MONGODB_URI!, {
-            bufferCommands: false,
+const cached = global.mongooseCache || { conn: null, promise: null };
+
+export async function connectDB() {
+    if (cached.conn) return cached.conn;
+
+    if (!cached.promise) {
+        cached.promise = mongoose.connect(MONGODB_URI).then((mongooseInstance) => {
+            return mongooseInstance;
         });
     }
 
-    return global.mongoosePromise;
+    cached.conn = await cached.promise;
+    global.mongooseCache = cached;
+
+    return cached.conn;
 }
