@@ -1,69 +1,72 @@
-type TeachingClass = {
-    title: string;
-    classCode: string;
-    studentCount: string;
-    progress: number;
-    gradientClassName: string;
+import { Classroom } from "@/app/ui/my_classes/type/classroom.type";
+
+type ClassCardProps = {
+    classroom: Classroom;
+    onDelete: (id: string) => void;
+    onViewDetail: (classroom: Classroom) => void;
+    onEdit: (classroom: Classroom) => void;
 };
 
-type Props = {
-    item: TeachingClass;
-};
-
-export function ClassCard({ item }: Props) {
+export function ClassCard({
+                              classroom,
+                              onDelete,
+                              onViewDetail,
+                              onEdit,
+                          }: ClassCardProps) {
     return (
-        <div className="group flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl">
-            <div
-                className={`relative flex h-32 flex-col justify-end p-6 ${item.gradientClassName}`}
-            >
-                <div className="absolute right-4 top-4 rounded-lg bg-white/20 p-1.5 text-white backdrop-blur-md">
-                    <span className="material-symbols-outlined">more_vert</span>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <h3 className="text-lg font-bold text-slate-900">
+                        {classroom.name}
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                        Mã lớp: {classroom.code}
+                    </p>
                 </div>
 
-                <h3 className="text-xl font-bold leading-tight text-white">
-                    {item.title}
-                </h3>
+                <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-600">
+                    {classroom.semester || "HK1"}
+                </span>
             </div>
 
-            <div className="flex flex-1 flex-col p-6">
-                <div className="mb-6 flex flex-col gap-3">
-                    <div className="flex items-center gap-2 text-slate-500">
-            <span className="material-symbols-outlined text-[20px]">
-              fingerprint
-            </span>
-                        <span className="text-sm font-medium">
-              Mã lớp: <span className="text-slate-900">{item.classCode}</span>
-            </span>
-                    </div>
+            <p className="mt-3 text-sm text-slate-600">
+                {classroom.description || "Chưa có mô tả"}
+            </p>
 
-                    <div className="flex items-center gap-2 text-slate-500">
-                        <span className="material-symbols-outlined text-[20px]">group</span>
-                        <span className="text-sm font-medium">
-              Sĩ số: <span className="text-slate-900">{item.studentCount}</span>
-            </span>
-                    </div>
-                </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                    {classroom.academicYear || "2025-2026"}
+                </span>
 
-                <div className="mt-auto">
-                    <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-bold uppercase text-slate-400">
-              Tiến độ trung bình
-            </span>
-                        <span className="text-sm font-bold text-orange-500">
-              {item.progress}%
-            </span>
-                    </div>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
+                    {classroom.status || "active"}
+                </span>
+            </div>
 
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                        <div
-                            className="h-full rounded-full bg-orange-500"
-                            style={{ width: `${item.progress}%` }}
-                        />
-                    </div>
-                </div>
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() => onViewDetail(classroom)}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                >
+                    Xem chi tiết
+                </button>
 
-                <button className="mt-6 w-full rounded-lg border border-orange-200 bg-orange-50 py-2.5 text-sm font-bold text-orange-500 transition-all hover:bg-orange-500 hover:text-white">
-                    Chi tiết lớp học
+                <button
+                    type="button"
+                    onClick={() => onEdit(classroom)}
+                    className="rounded-xl bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100"
+                >
+                    Sửa
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => onDelete(classroom._id)}
+                    className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-100"
+                >
+                    Xóa
                 </button>
             </div>
         </div>
