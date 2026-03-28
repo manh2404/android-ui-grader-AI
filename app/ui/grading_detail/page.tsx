@@ -18,7 +18,6 @@ export default function GradingDetailPage() {
     return (
         <div className="min-h-screen bg-[#f8f6f6] text-slate-900">
             <div className="relative flex min-h-screen w-full flex-col overflow-x-hidden">
-                <GradingTopBar />
 
                 <main className="mx-auto grid w-full max-w-7xl flex-1 grid-cols-1 gap-6 p-4 md:p-6 lg:grid-cols-12">
                     <aside className="lg:col-span-4">
@@ -39,7 +38,6 @@ export default function GradingDetailPage() {
                     </section>
                 </main>
 
-                <GradingFooter />
             </div>
         </div>
     );

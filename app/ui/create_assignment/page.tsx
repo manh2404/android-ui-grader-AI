@@ -1,11 +1,9 @@
-import { CreateAssignmentTopBar } from "@/components/create_assignment/CreateAssignmentTopBar";
 import { AssignmentIntro } from "@/components/create_assignment/AssignmentIntro";
 import { BasicInfoCard } from "@/components/create_assignment/BasicInfoCard";
 import { TestCasesCard } from "@/components/create_assignment/TestCasesCard";
 import { DeadlineCard } from "@/components/create_assignment/DeadlineCard";
 import { GradingCriteriaCard } from "@/components/create_assignment/GradingCriteriaCard";
 import { HelperTipCard } from "@/components/create_assignment/HelperTipCard";
-import { CreateAssignmentFooter } from "@/components/create_assignment/CreateAssignmentFooter";
 
 import {
     basicInfoData,
@@ -20,7 +18,6 @@ export default function CreateAssignmentPage() {
     return (
         <div className="min-h-screen bg-[#f8f6f6] text-slate-900">
             <div className="flex min-h-screen flex-col">
-                <CreateAssignmentTopBar />
 
                 <main className="flex flex-1 justify-center px-4 py-8 md:px-10">
                     <div className="flex max-w-[1000px] flex-1 flex-col gap-8">
@@ -41,7 +38,6 @@ export default function CreateAssignmentPage() {
                     </div>
                 </main>
 
-                <CreateAssignmentFooter />
             </div>
         </div>
     );

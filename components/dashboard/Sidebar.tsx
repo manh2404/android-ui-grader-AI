@@ -1,46 +1,43 @@
-const menuItems = [
-    { label: "Bảng điều khiển", icon: "dashboard", active: true },
-    { label: "Danh sách lớp", icon: "groups" },
-    { label: "Kho bài tập", icon: "assignment" },
-    { label: "Báo cáo chi tiết", icon: "assessment" },
-];
+"use client";
 
-const bottomItems = [
-    { label: "Cài đặt hệ thống", icon: "settings" },
-    { label: "Trợ giúp", icon: "help" },
-];
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { navItems, isActivePath } from "@/lib/navigation";
+
+const sidebarItems = navItems.filter((item) =>
+    [
+        "/ui/dashboard",
+        "/ui/my_classes",
+        "/ui/assignment_list",
+        "/ui/learning_reports",
+        "/ui/server_config",
+    ].includes(item.href)
+);
 
 export function Sidebar() {
+    const pathname = usePathname();
+
     return (
         <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white p-4 lg:block">
             <div className="flex flex-col gap-2">
-                {menuItems.map((item) => (
-                    <a
-                        key={item.label}
-                        href="#"
-                        className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
-                            item.active
-                                ? "bg-orange-50 font-bold text-orange-600"
-                                : "text-slate-600 hover:bg-slate-100"
-                        }`}
-                    >
-                        <span className="material-symbols-outlined">{item.icon}</span>
-                        <span>{item.label}</span>
-                    </a>
-                ))}
+                {sidebarItems.map((item) => {
+                    const active = isActivePath(pathname, item.href);
 
-                <div className="my-4 border-t border-slate-200" />
-
-                {bottomItems.map((item) => (
-                    <a
-                        key={item.label}
-                        href="#"
-                        className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
-                    >
-                        <span className="material-symbols-outlined">{item.icon}</span>
-                        <span>{item.label}</span>
-                    </a>
-                ))}
+                    return (
+                        <Link
+                            key={item.href}
+                            href={item.href}
+                            className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
+                                active
+                                    ? "bg-orange-50 font-bold text-orange-600"
+                                    : "text-slate-600 hover:bg-slate-100"
+                            }`}
+                        >
+                            <span className="material-symbols-outlined">{item.icon}</span>
+                            <span>{item.label}</span>
+                        </Link>
+                    );
+                })}
             </div>
         </aside>
     );

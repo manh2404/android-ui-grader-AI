@@ -20,7 +20,6 @@ export default function SubmitAssignmentPage() {
     return (
         <div className="min-h-screen bg-[#f8f6f6] text-slate-900">
             <div className="flex min-h-screen flex-col">
-                <SubmissionTopBar />
 
                 <main className="mx-auto w-full max-w-5xl flex-1 p-4 md:p-8">
                     <SubmissionBreadcrumbs items={breadcrumbItems} />
@@ -43,7 +42,6 @@ export default function SubmitAssignmentPage() {
                     </div>
                 </main>
 
-                <SubmissionFooter />
             </div>
         </div>
     );

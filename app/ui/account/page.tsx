@@ -15,7 +15,6 @@ export default function AccountPage() {
     return (
         <div className="min-h-screen bg-[#f8f6f6] text-slate-900">
             <div className="mx-auto flex min-h-screen max-w-[960px] flex-col">
-                <AccountTopBar />
 
                 <main className="flex-1 space-y-8 p-4 md:p-6">
                     <ProfileHero profile={profile} />
@@ -24,7 +23,6 @@ export default function AccountPage() {
                     <SubmissionHistory items={submissionHistory} />
                 </main>
 
-                <MobileAccountNav />
             </div>
         </div>
     );

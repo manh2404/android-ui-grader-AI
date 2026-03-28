@@ -1,18 +1,18 @@
-import { TopNav } from "../components/dashboard/TopNav";
-import { Sidebar } from "../components/dashboard/Sidebar";
-import { DashboardHeader } from "../components/dashboard/DashboardHeader";
-import { StatCard } from "../components/dashboard/StatCard";
-import { LineChartCard } from "../components/dashboard/LineChartCard";
-import { BarChartCard } from "../components/dashboard/BarChartCard";
-import { NotificationsPanel } from "../components/dashboard/NotificationsPanel";
-import { RecentActivityTable } from "../components/dashboard/RecentActivityTable";
-import { MobileBottomNav } from "../components/dashboard/MobileBottomNav";
+import { TopNav } from "@/components/dashboard/TopNav";
+import { Sidebar } from "@/components/dashboard/Sidebar";
+import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
+import { StatCard } from "@/components/dashboard/StatCard";
+import { LineChartCard } from "@/components/dashboard/LineChartCard";
+import { BarChartCard } from "@/components/dashboard/BarChartCard";
+import { NotificationsPanel } from "@/components/dashboard/NotificationsPanel";
+import { RecentActivityTable } from "@/components/dashboard/RecentActivityTable";
+import { MobileBottomNav } from "@/components/dashboard/MobileBottomNav";
 import {
     classScores,
     notifications,
     recentActivities,
     stats,
-} from "../lib/dashboard-data";
+} from "@/lib/dashboard-data";
 
 export default function HomePage() {
     return (

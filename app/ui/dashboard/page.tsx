@@ -18,10 +18,8 @@ import {
 export default function DashboardPage() {
     return (
         <div className="min-h-screen bg-[#f8f6f6] text-slate-900">
-            <TopNav />
 
             <div className="mx-auto flex w-full max-w-[1440px]">
-                <Sidebar />
 
                 <main className="flex-1 p-4 md:p-6">
                     <DashboardHeader />
@@ -47,7 +45,6 @@ export default function DashboardPage() {
                 </main>
             </div>
 
-            <MobileBottomNav />
         </div>
     );
 }

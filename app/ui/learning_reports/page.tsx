@@ -19,7 +19,6 @@ import {
 export default function LearningReportPage() {
     return (
         <div className="min-h-screen bg-[#f8f6f6] text-slate-900">
-            <ReportTopBar />
 
             <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
                 <ReportPageHeader data={pageHeaderData} />
@@ -37,7 +36,6 @@ export default function LearningReportPage() {
                 </div>
             </main>
 
-            <ReportFooter />
         </div>
     );
 }

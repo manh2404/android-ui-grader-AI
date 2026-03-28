@@ -20,7 +20,7 @@ export default function ServerConfigPage() {
     return (
         <div className="min-h-screen bg-[#f8f6f6] text-slate-900">
             <div className="flex min-h-screen flex-col">
-                <SettingsTopBar />
+
 
                 <div className="flex flex-1 overflow-hidden">
                     <SettingsSidebar groups={sidebarGroups} versionInfo={versionInfo} />
@@ -42,7 +42,6 @@ export default function ServerConfigPage() {
                                 <BackupSettingsCard data={backupSettingsData} />
                             </div>
 
-                            <SettingsActionBar />
                         </div>
                     </main>
                 </div>
