@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { SocialLoginButtons } from "./SocialLoginButtons";
+import {useState} from "react";
+import {SocialLoginButtons} from "./SocialLoginButtons";
 import Link from "next/link";
+import {useRouter} from "next/navigation";
 
 
 type SocialProvider = {
@@ -28,7 +29,8 @@ type Props = {
     data: LoginFormData;
 };
 
-export function LoginFormCard({ data }: Props) {
+export function LoginFormCard({data}: Props) {
+    const router = useRouter();
     const [showPassword, setShowPassword] = useState(false);
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -41,13 +43,8 @@ export function LoginFormCard({ data }: Props) {
         e.preventDefault();
         setError("");
 
-        if (!email.trim()) {
-            setError("Vui lòng nhập email");
-            return;
-        }
-
-        if (!password.trim()) {
-            setError("Vui lòng nhập mật khẩu");
+        if (!email.trim() || !password.trim()) {
+            setError("Vui lòng nhập email và mật khẩu");
             return;
         }
 
@@ -73,8 +70,9 @@ export function LoginFormCard({ data }: Props) {
                 return;
             }
 
-            window.location.href = "/dashboard";
-        } catch (err) {
+            router.push("/ui/dashboard");
+            router.refresh();
+        } catch (error) {
             setError("Có lỗi xảy ra, vui lòng thử lại");
         } finally {
             setLoading(false);
@@ -82,7 +80,8 @@ export function LoginFormCard({ data }: Props) {
     };
     return (
         <>
-            <div className="rounded-3xl border border-[#e2bfb0]/10 bg-white p-8 shadow-[0_32px_64px_-12px_rgba(26,28,28,0.08)] sm:p-10">
+            <div
+                className="rounded-3xl border border-[#e2bfb0]/10 bg-white p-8 shadow-[0_32px_64px_-12px_rgba(26,28,28,0.08)] sm:p-10">
                 <form className="space-y-6" onSubmit={handleSubmit}>
                     <div className="space-y-2">
                         <label className="block text-sm font-medium text-[#4c56af]">
@@ -91,7 +90,8 @@ export function LoginFormCard({ data }: Props) {
 
                         <div className="group relative">
                             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                <span className="material-symbols-outlined text-[#8e7164] transition-colors group-focus-within:text-[#a04100]">
+                <span
+                    className="material-symbols-outlined text-[#8e7164] transition-colors group-focus-within:text-[#a04100]">
                   person
                 </span>
                             </div>
@@ -113,7 +113,8 @@ export function LoginFormCard({ data }: Props) {
 
                         <div className="group relative">
                             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                <span className="material-symbols-outlined text-[#8e7164] transition-colors group-focus-within:text-[#a04100]">
+                <span
+                    className="material-symbols-outlined text-[#8e7164] transition-colors group-focus-within:text-[#a04100]">
                   lock
                 </span>
                             </div>
@@ -174,7 +175,7 @@ export function LoginFormCard({ data }: Props) {
 
                 <div className="relative mt-8">
                     <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-[#e2bfb0]/20" />
+                        <div className="w-full border-t border-[#e2bfb0]/20"/>
                     </div>
 
                     <div className="relative flex justify-center text-sm">
@@ -184,7 +185,7 @@ export function LoginFormCard({ data }: Props) {
                     </div>
                 </div>
 
-                <SocialLoginButtons providers={data.socialProviders} />
+                <SocialLoginButtons providers={data.socialProviders}/>
             </div>
 
             <p className="text-center text-[#5a4136]">

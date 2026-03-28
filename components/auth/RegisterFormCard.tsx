@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import {useRouter } from "next/navigation";
 
 type RegisterFormData = {
     title: string;
@@ -28,6 +29,8 @@ type Props = {
     data: RegisterFormData;
 };
 export function RegisterFormCard({ data }: Props) {
+    const router = useRouter();
+    const [name, setName] = useState("");
     const [fullName, setFullName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -40,19 +43,10 @@ export function RegisterFormCard({ data }: Props) {
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setError("");
+        console.log({ fullName, email, password, confirmPassword, acceptedTerms });
 
-        if (!fullName.trim()) {
-            setError("Vui lòng nhập họ tên");
-            return;
-        }
-
-        if (!email.trim()) {
-            setError("Vui lòng nhập email");
-            return;
-        }
-
-        if (!password.trim()) {
-            setError("Vui lòng nhập mật khẩu");
+        if (!name.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
+            setError("Vui lòng nhập đầy đủ thông tin");
             return;
         }
 
@@ -67,7 +61,7 @@ export function RegisterFormCard({ data }: Props) {
         }
 
         if (!acceptedTerms) {
-            setError("Bạn cần đồng ý điều khoản trước khi đăng ký");
+            setError("Bạn cần đồng ý điều khoản");
             return;
         }
 
@@ -80,7 +74,7 @@ export function RegisterFormCard({ data }: Props) {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                    fullName,
+                    name,
                     email,
                     password,
                 }),
@@ -93,8 +87,9 @@ export function RegisterFormCard({ data }: Props) {
                 return;
             }
 
-            window.location.href = "/login";
-        } catch (err) {
+            router.push("/ui/dashboard");
+            router.refresh();
+        } catch (error) {
             setError("Có lỗi xảy ra, vui lòng thử lại");
         } finally {
             setLoading(false);
@@ -125,8 +120,9 @@ export function RegisterFormCard({ data }: Props) {
                         <input
                             type="text"
                             placeholder={data.fullNamePlaceholder}
-                            value={fullName}
-                            onChange={(e) => setFullName(e.target.value)}
+                            autoComplete="name"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
                             className="w-full rounded-xl border-none bg-[#e8e8e8] py-4 pl-12 pr-4 text-[#1a1c1c] outline-none transition-all duration-200 placeholder:text-[#5a4136]/40 focus:bg-white focus:ring-2 focus:ring-[#a04100]/20"
                         />
                     </div>
@@ -147,6 +143,7 @@ export function RegisterFormCard({ data }: Props) {
                         <input
                             type="email"
                             placeholder={data.emailPlaceholder}
+                            autoComplete="email"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             className="w-full rounded-xl border-none bg-[#e8e8e8] py-4 pl-12 pr-4 text-[#1a1c1c] outline-none transition-all duration-200 placeholder:text-[#5a4136]/40 focus:bg-white focus:ring-2 focus:ring-[#a04100]/20"
