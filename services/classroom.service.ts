@@ -1,5 +1,5 @@
-import User from "@/models/User.model";
 import { classroomRepository } from "@/repositories/classroom.repository";
+import * as classroomMemberRepo from "@/repositories/classroom-member.repository";
 
 type Semester = "HK1" | "HK2" | "HK3";
 
@@ -16,16 +16,36 @@ type CreateClassPayload = {
     academicYear: string;
 };
 
-function getOwnerId(value: unknown): string | null {
-    if (!value) return null;
+function toStringId(value: unknown): string {
+    if (!value) return "";
+
     if (typeof value === "string") return value;
 
-    if (typeof value === "object" && value !== null && "_id" in value) {
-        const teacher = value as { _id?: string };
-        return teacher._id || null;
+    if (
+        typeof value === "number" ||
+        typeof value === "bigint" ||
+        typeof value === "boolean"
+    ) {
+        return String(value);
     }
 
-    return null;
+    if (typeof value === "object" && value !== null) {
+        const obj = value as { _id?: unknown; toString?: () => string };
+
+        if ("_id" in obj && obj._id && obj._id !== value) {
+            return toStringId(obj._id);
+        }
+
+        if (typeof obj.toString === "function") {
+            const stringified = obj.toString();
+
+            if (stringified && stringified !== "[object Object]") {
+                return stringified;
+            }
+        }
+    }
+
+    return String(value);
 }
 
 function ensureCanManageClass(currentUser: CurrentUser, teacherId: unknown) {
@@ -35,16 +55,69 @@ function ensureCanManageClass(currentUser: CurrentUser, teacherId: unknown) {
         throw new Error("Bạn không có quyền thực hiện thao tác này");
     }
 
-    const ownerId = getOwnerId(teacherId);
+    const ownerId = toStringId(teacherId);
 
     if (ownerId && ownerId !== currentUser.userId) {
         throw new Error("Bạn chỉ có thể thao tác trên lớp học của mình");
     }
 }
 
+function mergeUniqueById<T extends { _id?: unknown; createdAt?: unknown }>(
+    ...groups: T[][]
+) {
+    const map = new Map<string, T>();
+
+    for (const items of groups) {
+        for (const item of items) {
+            map.set(String(item._id), item);
+        }
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+        const timeA = a.createdAt ? new Date(String(a.createdAt)).getTime() : 0;
+        const timeB = b.createdAt ? new Date(String(b.createdAt)).getTime() : 0;
+        return timeB - timeA;
+    });
+}
+
 export const classroomService = {
-    async getAllClasses() {
-        return classroomRepository.findAll();
+    async getAllClasses(currentUser: CurrentUser) {
+        if (!currentUser) {
+            throw new Error("Bạn chưa đăng nhập");
+        }
+
+        if (currentUser.role === "admin") {
+            return classroomRepository.findAll();
+        }
+
+        if (currentUser.role === "teacher") {
+            const [ownedClasses, supportedClassIds] = await Promise.all([
+                classroomRepository.findAllByTeacherId(currentUser.userId),
+                classroomMemberRepo.findClassroomIdsByUserId(currentUser.userId, {
+                    status: "active",
+                    roleInClass: "teacher",
+                }),
+            ]);
+
+            const supportedClasses = supportedClassIds.length
+                ? await classroomRepository.findAllByIds(supportedClassIds)
+                : [];
+
+            return mergeUniqueById(ownedClasses, supportedClasses);
+        }
+
+        const joinedClassIds = await classroomMemberRepo.findClassroomIdsByUserId(
+            currentUser.userId,
+            {
+                status: "active",
+            }
+        );
+
+        if (!joinedClassIds.length) {
+            return [];
+        }
+
+        return classroomRepository.findAllByIds(joinedClassIds);
     },
 
     async getClassById(id: string) {
@@ -135,77 +208,6 @@ export const classroomService = {
         return updated;
     },
 
-    async addStudentToClass(
-        classId: string,
-        studentId: string,
-        currentUser: CurrentUser
-    ) {
-        if (!currentUser) {
-            throw new Error("Bạn chưa đăng nhập");
-        }
-
-        const classroom = await classroomRepository.findById(classId);
-
-        if (!classroom) {
-            throw new Error("Không tìm thấy lớp học");
-        }
-
-        ensureCanManageClass(currentUser, classroom.teacherId);
-
-        const student = await User.findById(studentId);
-
-        if (!student) {
-            throw new Error("Không tìm thấy sinh viên");
-        }
-
-        if (student.role !== "User") {
-            throw new Error("Người được chọn không phải sinh viên");
-        }
-
-        const updated = await classroomRepository.addStudentToClass(classId, studentId);
-
-        if (!updated) {
-            throw new Error("Không thể thêm sinh viên vào lớp");
-        }
-
-        return updated;
-    },
-
-    async removeStudentFromClass(
-        classId: string,
-        studentId: string,
-        currentUser: CurrentUser
-    ) {
-        if (!currentUser) {
-            throw new Error("Bạn chưa đăng nhập");
-        }
-
-        const classroom = await classroomRepository.findById(classId);
-
-        if (!classroom) {
-            throw new Error("Không tìm thấy lớp học");
-        }
-
-        ensureCanManageClass(currentUser, classroom.teacherId);
-
-        const student = await User.findById(studentId);
-
-        if (!student) {
-            throw new Error("Không tìm thấy sinh viên");
-        }
-
-        const updated = await classroomRepository.removeStudentFromClass(
-            classId,
-            studentId
-        );
-
-        if (!updated) {
-            throw new Error("Không thể xóa sinh viên khỏi lớp");
-        }
-
-        return updated;
-    },
-
     async deleteClass(id: string, currentUser: CurrentUser) {
         if (!currentUser) {
             throw new Error("Bạn chưa đăng nhập");
@@ -219,7 +221,10 @@ export const classroomService = {
 
         ensureCanManageClass(currentUser, existing.teacherId);
 
-        await classroomRepository.deleteById(id);
+        await Promise.all([
+            classroomRepository.deleteById(id),
+            classroomMemberRepo.deleteManyByClassroomId(id),
+        ]);
 
         return true;
     },

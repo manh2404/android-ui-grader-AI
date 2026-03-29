@@ -1,23 +1,79 @@
 import { cookies } from "next/headers";
-import jwt from "jsonwebtoken";
+import { verifyToken } from "@/lib/auth";
 
-const JWT_SECRET = process.env.JWT_SECRET!;
+export type CurrentUserPayload = {
+    userId: string;
+    email: string;
+    role: string;
+    studentCode?: string;
+};
+
+function parseCookieToken(cookieHeader?: string | null) {
+    if (!cookieHeader) return null;
+
+    const tokenPair = cookieHeader
+        .split(";")
+        .map((item) => item.trim())
+        .find((item) => item.startsWith("token="));
+
+    if (!tokenPair) return null;
+
+    return decodeURIComponent(tokenPair.slice("token=".length));
+}
+
+function verifyTokenSafe(token?: string | null): CurrentUserPayload | null {
+    if (!token) return null;
+
+    try {
+        return verifyToken(token) as CurrentUserPayload;
+    } catch {
+        return null;
+    }
+}
 
 export async function getCurrentUserFromCookie() {
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
+    return verifyTokenSafe(token);
+}
 
-    if (!token) return null;
+export function getCurrentUserFromRequest(request: Request) {
+    const cookieToken = parseCookieToken(request.headers.get("cookie"));
+    const cookieUser = verifyTokenSafe(cookieToken);
 
-    try {
-        const payload = jwt.verify(token, JWT_SECRET) as {
-            userId: string;
-            email: string;
-            role: string;
-        };
+    if (cookieUser?.userId) {
+        return cookieUser;
+    }
 
-        return payload;
-    } catch {
+    const actorId = request.headers.get("x-user-id");
+
+    if (!actorId) {
         return null;
     }
+
+    return {
+        userId: actorId,
+        email: request.headers.get("x-user-email") || "",
+        role: request.headers.get("x-user-role") || "",
+        studentCode: request.headers.get("x-student-code") || undefined,
+    };
+}
+
+export class UnauthorizedError extends Error {
+    statusCode = 401;
+
+    constructor(message = "Bạn chưa đăng nhập") {
+        super(message);
+        this.name = "UnauthorizedError";
+    }
+}
+
+export function getActorIdFromRequest(request: Request) {
+    const currentUser = getCurrentUserFromRequest(request);
+
+    if (!currentUser?.userId) {
+        throw new UnauthorizedError("Bạn chưa đăng nhập");
+    }
+
+    return currentUser.userId;
 }

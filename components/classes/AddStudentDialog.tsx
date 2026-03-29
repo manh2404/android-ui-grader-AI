@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type StudentItem = {
+type StudentSearchItem = {
     _id: string;
     name: string;
     email: string;
@@ -23,8 +23,8 @@ export function AddStudentDialog({
                                      onSuccess,
                                  }: AddStudentDialogProps) {
     const [keyword, setKeyword] = useState("");
-    const [results, setResults] = useState<StudentItem[]>([]);
-    const [selected, setSelected] = useState<StudentItem | null>(null);
+    const [results, setResults] = useState<StudentSearchItem[]>([]);
+    const [selected, setSelected] = useState<StudentSearchItem | null>(null);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
@@ -40,8 +40,9 @@ export function AddStudentDialog({
 
         const query = keyword.trim();
 
-        if (query.length < 1) {
+        if (query.length < 2) {
             setResults([]);
+            setSelected(null);
             return;
         }
 
@@ -51,7 +52,9 @@ export function AddStudentDialog({
                 setError("");
 
                 const res = await fetch(
-                    `/api/classes/users/search?q=${encodeURIComponent(query)}`,
+                    `/api/classes/${classroomId}/students?mode=available&keyword=${encodeURIComponent(
+                        query
+                    )}`,
                     {
                         method: "GET",
                         cache: "no-store",
@@ -66,7 +69,7 @@ export function AddStudentDialog({
                     return;
                 }
 
-                setResults(result.data || []);
+                setResults(result.items || []);
             } catch {
                 setError("Có lỗi xảy ra khi tìm sinh viên");
                 setResults([]);
@@ -76,7 +79,7 @@ export function AddStudentDialog({
         }, 300);
 
         return () => clearTimeout(timeout);
-    }, [keyword, open]);
+    }, [classroomId, keyword, open]);
 
     if (!open) return null;
 
@@ -157,7 +160,9 @@ export function AddStudentDialog({
                             </div>
                         ) : results.length === 0 ? (
                             <div className="px-4 py-4 text-sm text-slate-500">
-                                Chưa có kết quả phù hợp.
+                                {keyword.trim().length < 2
+                                    ? "Nhập ít nhất 2 ký tự để tìm kiếm"
+                                    : "Chưa có kết quả phù hợp."}
                             </div>
                         ) : (
                             results.map((student) => {

@@ -1,11 +1,11 @@
 "use client";
 
-import {useEffect, useMemo, useState} from "react";
-import {ClassesHeader} from "@/components/classes/ClassesHeader";
-import {SemesterFilters} from "@/components/classes/SemesterFilters";
-import {ClassesGrid} from "@/components/classes/ClassesGrid";
-import {AddClassCard} from "@/components/classes/AddClassCard";
-import {Classroom} from "@/app/ui/my_classes/type/classroom.type";
+import { useEffect, useMemo, useState } from "react";
+import { ClassesHeader } from "@/components/classes/ClassesHeader";
+import { SemesterFilters } from "@/components/classes/SemesterFilters";
+import { ClassesGrid } from "@/components/classes/ClassesGrid";
+import { AddClassCard } from "@/components/classes/AddClassCard";
+import { Classroom } from "@/app/ui/my_classes/type/classroom.type";
 
 type CreateClassPayload = {
     name: string;
@@ -24,6 +24,14 @@ type UpdateClassPayload = {
     status: "active" | "archived";
 };
 
+type CurrentUser = {
+    _id: string;
+    name: string;
+    email: string;
+    studentCode?: string;
+    role: "admin" | "teacher" | "User";
+};
+
 export default function MyClassesPage() {
     const [classes, setClasses] = useState<Classroom[]>([]);
     const [loading, setLoading] = useState(true);
@@ -31,6 +39,36 @@ export default function MyClassesPage() {
     const [error, setError] = useState("");
     const [semesterFilter, setSemesterFilter] = useState("all");
     const [search, setSearch] = useState("");
+
+    const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+    const [loadingUser, setLoadingUser] = useState(true);
+
+    const canManageClassUI =
+        currentUser?.role === "teacher" || currentUser?.role === "admin";
+
+    const fetchCurrentUser = async () => {
+        try {
+            setLoadingUser(true);
+
+            const res = await fetch("/api/auth/me", {
+                method: "GET",
+                cache: "no-store",
+            });
+
+            const result = await res.json();
+
+            if (!res.ok) {
+                setCurrentUser(null);
+                return;
+            }
+
+            setCurrentUser(result.user || null);
+        } catch {
+            setCurrentUser(null);
+        } finally {
+            setLoadingUser(false);
+        }
+    };
 
     const fetchClasses = async () => {
         try {
@@ -60,7 +98,8 @@ export default function MyClassesPage() {
     };
 
     useEffect(() => {
-        fetchClasses();
+        void fetchCurrentUser();
+        void fetchClasses();
     }, []);
 
     const handleCreateClass = async (payload: CreateClassPayload) => {
@@ -178,7 +217,8 @@ export default function MyClassesPage() {
 
     return (
         <div className="space-y-6">
-            <ClassesHeader total={filteredClasses.length}/>
+            <ClassesHeader total={filteredClasses.length} />
+
             <SemesterFilters
                 value={semesterFilter}
                 onChange={setSemesterFilter}
@@ -190,14 +230,17 @@ export default function MyClassesPage() {
                 </div>
             ) : null}
 
-            <AddClassCard
-                onCreate={handleCreateClass}
-                loading={submitting}
-            />
+            {!loadingUser && canManageClassUI ? (
+                <AddClassCard
+                    onCreate={handleCreateClass}
+                    loading={submitting}
+                />
+            ) : null}
+
             <div className="relative w-full md:max-w-md">
-        <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
-          search
-        </span>
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                    search
+                </span>
                 <input
                     type="text"
                     value={search}
@@ -206,12 +249,14 @@ export default function MyClassesPage() {
                     className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-12 pr-4 text-sm text-slate-700 outline-none transition focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
                 />
             </div>
+
             <ClassesGrid
                 classes={filteredClasses}
                 loading={loading}
                 onDelete={handleDeleteClass}
                 onUpdate={handleUpdateClass}
                 onRefresh={fetchClasses}
+                canManageClassUI={canManageClassUI}
             />
         </div>
     );

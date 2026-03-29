@@ -22,6 +22,20 @@ export const classroomRepository = {
             .sort({ createdAt: -1 });
     },
 
+    findAllByTeacherId(teacherId: string) {
+        return Classroom.find({ teacherId })
+            .populate("teacherId", "name email studentCode")
+            .populate("studentIds", "name email studentCode")
+            .sort({ createdAt: -1 });
+    },
+
+    findAllByIds(ids: string[]) {
+        return Classroom.find({ _id: { $in: ids } })
+            .populate("teacherId", "name email studentCode")
+            .populate("studentIds", "name email studentCode")
+            .sort({ createdAt: -1 });
+    },
+
     findById(id: string) {
         return Classroom.findById(id)
             .populate("teacherId", "name email studentCode")
@@ -46,39 +60,6 @@ export const classroomRepository = {
             new: true,
             runValidators: true,
         })
-            .populate("teacherId", "name email studentCode")
-            .populate("studentIds", "name email studentCode");
-    },
-
-    addStudentToClass(id: string, studentId: string) {
-        return Classroom.findByIdAndUpdate(
-            id,
-            {
-                $addToSet: {
-                    studentIds: studentId,
-                },
-            },
-            {
-                new: true,
-                runValidators: true,
-            }
-        )
-            .populate("teacherId", "name email studentCode")
-            .populate("studentIds", "name email studentCode");
-    },
-    removeStudentFromClass(id: string, studentId: string) {
-        return Classroom.findByIdAndUpdate(
-            id,
-            {
-                $pull: {
-                    studentIds: studentId,
-                },
-            },
-            {
-                new: true,
-                runValidators: true,
-            }
-        )
             .populate("teacherId", "name email studentCode")
             .populate("studentIds", "name email studentCode");
     },
