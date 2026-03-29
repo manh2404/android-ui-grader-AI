@@ -1,25 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import {usePathname, useRouter} from "next/navigation";
-import {navItems, isActivePath} from "@/lib/navigation";
-import {useState} from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { navItems, isActivePath } from "@/lib/navigation";
+import { useMemo, useState } from "react";
 
 type AppSidebarProps = {
     collapsed: boolean;
     mobileOpen: boolean;
     onCloseMobile: () => void;
+    currentUserRole?: "admin" | "teacher" | "User";
 };
 
 export function AppSidebar({
                                collapsed,
                                mobileOpen,
                                onCloseMobile,
+                               currentUserRole,
                            }: AppSidebarProps) {
     const pathname = usePathname();
     const router = useRouter();
     const [loggingOut, setLoggingOut] = useState(false);
-// hàm handleLogout cho logout
+
+    const visibleNavItems = useMemo(() => {
+        return navItems.filter((item) => {
+            if (item.href === "/ui/create_assignment") {
+                return currentUserRole === "teacher" || currentUserRole === "admin";
+            }
+            return true;
+        });
+    }, [currentUserRole]);
+
     const handleLogout = async () => {
         try {
             setLoggingOut(true);
@@ -38,11 +49,12 @@ export function AppSidebar({
             onCloseMobile?.();
             router.push("/login");
             router.refresh();
-        } catch (error) {
+        } catch {
             alert("Có lỗi xảy ra khi đăng xuất");
         } finally {
             setLoggingOut(false);
         }
+
         localStorage.removeItem("token");
         localStorage.removeItem("user");
     };
@@ -67,8 +79,7 @@ export function AppSidebar({
                         className="flex min-w-0 items-center gap-3"
                         aria-label="Về trang tổng quan"
                     >
-                        <div
-                            className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-sm">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-sm">
                             <span className="material-symbols-outlined">auto_stories</span>
                         </div>
 
@@ -86,7 +97,7 @@ export function AppSidebar({
                 </div>
 
                 <nav className="space-y-1 p-3">
-                    {navItems.map((item) => {
+                    {visibleNavItems.map((item) => {
                         const active = isActivePath(pathname, item.href);
 
                         return (
@@ -101,28 +112,27 @@ export function AppSidebar({
                                         : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                                 } ${collapsed ? "justify-center" : "gap-3"}`}
                             >
-                            <span className="material-symbols-outlined text-[22px]">
-                              {item.icon}
-                            </span>
+                                <span className="material-symbols-outlined text-[22px]">
+                                    {item.icon}
+                                </span>
 
                                 {!collapsed && <span>{item.label}</span>}
                             </Link>
                         );
                     })}
+
                     <button
                         type="button"
                         onClick={handleLogout}
                         disabled={loggingOut}
                         className="mt-3 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                  <span className="material-symbols-outlined">
-                    logout
-                  </span>
+                        <span className="material-symbols-outlined">logout</span>
 
                         {!collapsed && (
                             <span className="font-medium">
-                          {loggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
-                        </span>
+                                {loggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
+                            </span>
                         )}
                     </button>
                 </nav>
