@@ -38,14 +38,18 @@ export function RegisterFormCard({ data }: Props) {
     const [acceptedTerms, setAcceptedTerms] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const [studentCode, setStudentCode] = useState("");
 
     // tao submid cho register
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setError("");
-        console.log({ fullName, email, password, confirmPassword, acceptedTerms });
+        if (studentCode.length < 12){
+            setError("mã sinh viên pha có ít nhất 12 ký tự")
+            return;
+        }
 
-        if (!name.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
+        if (! studentCode.trim() || !name.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
             setError("Vui lòng nhập đầy đủ thông tin");
             return;
         }
@@ -77,6 +81,8 @@ export function RegisterFormCard({ data }: Props) {
                     name,
                     email,
                     password,
+                    confirmPassword,
+                    studentCode: studentCode.trim().toUpperCase(),
                 }),
             });
 
@@ -124,6 +130,23 @@ export function RegisterFormCard({ data }: Props) {
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             className="w-full rounded-xl border-none bg-[#e8e8e8] py-4 pl-12 pr-4 text-[#1a1c1c] outline-none transition-all duration-200 placeholder:text-[#5a4136]/40 focus:bg-white focus:ring-2 focus:ring-[#a04100]/20"
+                        />
+                    </div>
+                </div>
+                <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-600 ml-1">
+                        MÃ SINH VIÊN
+                    </label>
+                    <div className="relative group">
+                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400">
+                            <span className="material-symbols-outlined text-[20px]">badge</span>
+                        </div>
+                        <input
+                            value={studentCode}
+                            onChange={(e) => setStudentCode(e.target.value.toUpperCase())}
+                            className="w-full rounded-xl py-4 pl-12 pr-4 outline-none bg-slate-100 focus:ring-2 focus:ring-orange-200"
+                            placeholder="SV00123"
+                            type="text"
                         />
                     </div>
                 </div>

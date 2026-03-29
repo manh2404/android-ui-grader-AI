@@ -1,3 +1,4 @@
+import User from "@/models/User.model";
 import { classroomRepository } from "@/repositories/classroom.repository";
 
 type Semester = "HK1" | "HK2" | "HK3";
@@ -16,13 +17,8 @@ type CreateClassPayload = {
 };
 
 function getOwnerId(value: unknown): string | null {
-    if (!value) {
-        return null;
-    }
-
-    if (typeof value === "string") {
-        return value;
-    }
+    if (!value) return null;
+    if (typeof value === "string") return value;
 
     if (typeof value === "object" && value !== null && "_id" in value) {
         const teacher = value as { _id?: string };
@@ -33,9 +29,7 @@ function getOwnerId(value: unknown): string | null {
 }
 
 function ensureCanManageClass(currentUser: CurrentUser, teacherId: unknown) {
-    if (currentUser.role === "admin" || "teacher" ) {
-        return;
-    }
+    if (currentUser.role === "admin") return;
 
     if (currentUser.role !== "teacher") {
         throw new Error("Bạn không có quyền thực hiện thao tác này");
@@ -136,6 +130,77 @@ export const classroomService = {
 
         if (!updated) {
             throw new Error("Cập nhật lớp học thất bại");
+        }
+
+        return updated;
+    },
+
+    async addStudentToClass(
+        classId: string,
+        studentId: string,
+        currentUser: CurrentUser
+    ) {
+        if (!currentUser) {
+            throw new Error("Bạn chưa đăng nhập");
+        }
+
+        const classroom = await classroomRepository.findById(classId);
+
+        if (!classroom) {
+            throw new Error("Không tìm thấy lớp học");
+        }
+
+        ensureCanManageClass(currentUser, classroom.teacherId);
+
+        const student = await User.findById(studentId);
+
+        if (!student) {
+            throw new Error("Không tìm thấy sinh viên");
+        }
+
+        if (student.role !== "User") {
+            throw new Error("Người được chọn không phải sinh viên");
+        }
+
+        const updated = await classroomRepository.addStudentToClass(classId, studentId);
+
+        if (!updated) {
+            throw new Error("Không thể thêm sinh viên vào lớp");
+        }
+
+        return updated;
+    },
+
+    async removeStudentFromClass(
+        classId: string,
+        studentId: string,
+        currentUser: CurrentUser
+    ) {
+        if (!currentUser) {
+            throw new Error("Bạn chưa đăng nhập");
+        }
+
+        const classroom = await classroomRepository.findById(classId);
+
+        if (!classroom) {
+            throw new Error("Không tìm thấy lớp học");
+        }
+
+        ensureCanManageClass(currentUser, classroom.teacherId);
+
+        const student = await User.findById(studentId);
+
+        if (!student) {
+            throw new Error("Không tìm thấy sinh viên");
+        }
+
+        const updated = await classroomRepository.removeStudentFromClass(
+            classId,
+            studentId
+        );
+
+        if (!updated) {
+            throw new Error("Không thể xóa sinh viên khỏi lớp");
         }
 
         return updated;

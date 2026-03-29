@@ -211,6 +211,7 @@ export default function MyClassesPage() {
                 loading={loading}
                 onDelete={handleDeleteClass}
                 onUpdate={handleUpdateClass}
+                onRefresh={fetchClasses}
             />
         </div>
     );

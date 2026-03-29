@@ -10,6 +10,7 @@ export type TokenPayload = {
     userId: string;
     email: string;
     role: string;
+    studentCode?: string;
 };
 
 export function signToken(payload: TokenPayload) {

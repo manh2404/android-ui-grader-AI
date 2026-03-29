@@ -20,6 +20,7 @@ type ClassesGridProps = {
     loading: boolean;
     onDelete: (id: string) => void;
     onUpdate: (id: string, payload: UpdateClassPayload) => Promise<boolean>;
+    onRefresh: () => Promise<void>;
 };
 
 export function ClassesGrid({
@@ -27,6 +28,7 @@ export function ClassesGrid({
                                 loading,
                                 onDelete,
                                 onUpdate,
+                                onRefresh,
                             }: ClassesGridProps) {
     const [selectedClass, setSelectedClass] = useState<Classroom | null>(null);
     const [openDetail, setOpenDetail] = useState(false);
@@ -88,6 +90,7 @@ export function ClassesGrid({
                 open={openDetail}
                 classroom={selectedClass}
                 onClose={handleCloseDetail}
+                onStudentAdded={onRefresh}
             />
 
             <EditClassDialog

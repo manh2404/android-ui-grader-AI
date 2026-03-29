@@ -5,6 +5,7 @@ export type ClassroomUser = {
     _id?: string;
     name?: string;
     email?: string;
+    studentCode?: string;
 };
 
 export type Classroom = {

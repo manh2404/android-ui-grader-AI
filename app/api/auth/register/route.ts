@@ -2,26 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { connectDB } from "@/lib/mongodb";
 import User from "@/models/User.model";
-import { authCookieOptions, signToken } from "@/lib/auth";
+import { signToken } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { name, email, password } = body;
 
-        if (!name || !email || !password) {
+        const name = String(body.name || "").trim();
+        const email = String(body.email || "").trim().toLowerCase();
+        const password = String(body.password || "");
+        const studentCode = String(body.studentCode || "").trim().toUpperCase();
+
+        if (!name || !email || !password || !studentCode) {
             return NextResponse.json(
                 { message: "Vui lòng nhập đầy đủ thông tin" },
                 { status: 400 }
             );
         }
 
-        const normalizedName = name.trim();
-        const normalizedEmail = email.trim().toLowerCase();
-
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-        if (!emailRegex.test(normalizedEmail)) {
+        if (!emailRegex.test(email)) {
             return NextResponse.json(
                 { message: "Email không hợp lệ" },
                 { status: 400 }
@@ -37,8 +38,7 @@ export async function POST(req: NextRequest) {
 
         await connectDB();
 
-        const existingUser = await User.findOne({ email: normalizedEmail });
-
+        const existingUser = await User.findOne({ email });
         if (existingUser) {
             return NextResponse.json(
                 { message: "Email đã tồn tại" },
@@ -46,18 +46,29 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        const existingStudentCode = await User.findOne({ studentCode });
+        if (existingStudentCode) {
+            return NextResponse.json(
+                { message: "Mã sinh viên đã tồn tại" },
+                { status: 409 }
+            );
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const newUser = await User.create({
-            name: normalizedName,
-            email: normalizedEmail,
+            name,
+            email,
             password: hashedPassword,
+            studentCode,
+            role: "User",
         });
 
         const token = signToken({
             userId: newUser._id.toString(),
             email: newUser.email,
             role: newUser.role,
+            studentCode: newUser.studentCode,
         });
 
         const response = NextResponse.json(
@@ -68,6 +79,7 @@ export async function POST(req: NextRequest) {
                     name: newUser.name,
                     email: newUser.email,
                     role: newUser.role,
+                    studentCode: newUser.studentCode,
                 },
             },
             { status: 201 }
@@ -85,7 +97,12 @@ export async function POST(req: NextRequest) {
     } catch (error) {
         console.error("REGISTER_ERROR:", error);
         return NextResponse.json(
-            { message: "Lỗi server khi đăng ký" },
+            {
+                message:
+                    error instanceof Error
+                        ? error.message
+                        : "Lỗi server khi đăng ký",
+            },
             { status: 500 }
         );
     }

@@ -4,6 +4,7 @@ export interface IUser extends Document {
     name: string;
     email: string;
     password: string;
+    studentCode?: string;
     role: "teacher" | "admin" | "User";
     isVerified: boolean;
     avatar?: string;
@@ -33,6 +34,14 @@ const UserSchema = new Schema<IUser>(
             required: [true, "Mật khẩu là bắt buộc"],
             minlength: [6, "Mật khẩu phải có ít nhất 6 ký tự"],
         },
+        studentCode: {
+            type: String,
+            unique: true,
+            required: [true, "Mã sinh viên là bắt buộc"],
+            trim: true,
+            uppercase: true,
+            sparse: true,
+        },
         role: {
             type: String,
             enum: ["admin", "teacher", "User"],
@@ -56,6 +65,7 @@ const UserSchema = new Schema<IUser>(
 );
 
 UserSchema.index({ email: 1 }, { unique: true });
+UserSchema.index({ studentCode: 1 }, { unique: true, sparse: true });
 
 const User: Model<IUser> =
     mongoose.models.User || mongoose.model<IUser>("User", UserSchema);
