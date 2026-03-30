@@ -40,4 +40,11 @@ export const submissionRepository = {
             .populate("studentId", "name email studentCode")
             .sort({ submittedAt: -1 });
     },
+
+    async countByAssignment(assignmentId: string): Promise<number> {
+        return Submission.countDocuments({
+            assignmentId,
+            status: {$in: ["submitted", "graded", "late"]},
+        });
+    },
 };

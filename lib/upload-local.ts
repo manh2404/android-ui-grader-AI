@@ -14,6 +14,10 @@ function sanitizeFileName(name: string) {
     return name.replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
+function normalizeFiles(files: Array<File | null | undefined>) {
+    return files.filter((file): file is File => !!file && file.size > 0);
+}
+
 async function saveSingleFile(file: File, folder: string) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const extension = path.extname(file.name || "") || "";
@@ -37,11 +41,19 @@ async function saveSingleFile(file: File, folder: string) {
     } satisfies UploadedFileMeta;
 }
 
+export async function saveFileToLocal(
+    file: File | null | undefined,
+    folder: string
+): Promise<UploadedFileMeta | null> {
+    if (!file || file.size <= 0) return null;
+    return saveSingleFile(file, folder);
+}
+
 export async function saveFilesToLocal(
-    files: File[],
+    files: Array<File | null | undefined>,
     folder: string
 ): Promise<UploadedFileMeta[]> {
-    const validFiles = files.filter((file) => file && file.size > 0);
+    const validFiles = normalizeFiles(files);
 
     const results: UploadedFileMeta[] = [];
     for (const file of validFiles) {

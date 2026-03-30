@@ -1,26 +1,90 @@
 import { assignmentRepository } from "@/repositories/assignment.repository";
 import { classroomRepository } from "@/repositories/classroom.repository";
 import * as classroomMemberRepo from "@/repositories/classroom-member.repository";
-import { submissionRepository } from "@/repositories/submission.repository";
 import type {
     CreateAssignmentPayload,
     UpdateAssignmentPayload,
 } from "@/validations/assignment.validation";
 import type { CurrentUserPayload } from "@/lib/current-user";
 
-type AssignmentAttachment = {
-    kind: "resource" | "rubric" | "template";
-    originalName: string;
-    storedName: string;
+type AttachmentItem = {
     url: string;
-    mimeType: string;
-    size: number;
+    originalName: string;
+    kind: string;
+    storedName?: string;
+    mimeType?: string;
+    size?: number;
 };
+
+type UnknownRecord = Record<string, unknown>;
+
+type ClassroomLike = {
+    _id?: unknown;
+    name?: unknown;
+    code?: unknown;
+};
+
+type TeacherLike = {
+    _id?: unknown;
+    name?: unknown;
+    email?: unknown;
+};
+
+type LatestSubmissionLike = {
+    _id?: unknown;
+    attemptNo?: unknown;
+    status?: unknown;
+    finalScore?: unknown;
+    gradeStatus?: unknown;
+};
+
+type AssignmentLike = {
+    _id?: unknown;
+    title?: unknown;
+    description?: unknown;
+    dueAt?: unknown;
+    startAt?: unknown;
+    status?: unknown;
+    displayStatus?: unknown;
+    maxScore?: unknown;
+    allowLateSubmit?: unknown;
+    allowResubmit?: unknown;
+    latePenaltyPercent?: unknown;
+    language?: unknown;
+    rubricText?: unknown;
+    rubric?: unknown;
+    submissionPolicy?: unknown;
+    runnerConfig?: unknown;
+    aiConfig?: unknown;
+    classroom?: unknown;
+    classroomId?: unknown;
+    teacher?: unknown;
+    teacherId?: unknown;
+    attachments?: unknown;
+    createdAt?: unknown;
+    updatedAt?: unknown;
+    version?: unknown;
+    latestSubmission?: unknown;
+};
+
+function isObject(value: unknown): value is UnknownRecord {
+    return typeof value === "object" && value !== null;
+}
+
+function toObject(value: unknown): UnknownRecord {
+    return isObject(value) ? value : {};
+}
 
 function toStringId(value: unknown): string {
     if (!value) return "";
     if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "bigint") return String(value);
+    if (
+        typeof value === "number" ||
+        typeof value === "bigint" ||
+        typeof value === "boolean"
+    ) {
+        return String(value);
+    }
 
     if (typeof value === "object" && value !== null) {
         const maybeObject = value as { _id?: unknown; toString?: () => string };
@@ -40,369 +104,370 @@ function toStringId(value: unknown): string {
     return String(value);
 }
 
-function serializeAssignment(item: any) {
-    const now = Date.now();
-    const dueTime = item?.dueAt ? new Date(item.dueAt).getTime() : 0;
-    const rawStatus = item?.status || "published";
+function toText(value: unknown, fallback = ""): string {
+    if (typeof value === "string") return value;
+    if (value === null || value === undefined) return fallback;
+    return String(value);
+}
 
-    let displayStatus = "published";
-    if (rawStatus === "draft") {
-        displayStatus = "draft";
-    } else if (rawStatus === "closed" || (dueTime > 0 && dueTime < now)) {
-        displayStatus = "closed";
-    }
+function toNumberValue(value: unknown, fallback = 0): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeAttachment(value: unknown): AttachmentItem {
+    const item = toObject(value);
 
     return {
-        _id: toStringId(item?._id),
-        title: item?.title || "",
-        language: item?.language || "",
-        description: item?.description || "",
-        rubricText: item?.rubricText || "",
-        attachments: Array.isArray(item?.attachments) ? item.attachments : [],
-        startAt: item?.startAt,
-        dueAt: item?.dueAt,
-        allowLateSubmit: Boolean(item?.allowLateSubmit),
-        allowResubmit: Boolean(item?.allowResubmit),
-        latePenaltyPercent: Number(item?.latePenaltyPercent || 0),
-        maxScore: Number(item?.maxScore || 10),
-        status: rawStatus,
-        displayStatus,
-        classroom: item?.classroomId
-            ? {
-                _id: toStringId(item.classroomId?._id || item.classroomId),
-                name: item.classroomId?.name || "",
-                code: item.classroomId?.code || "",
-                semester: item.classroomId?.semester || "",
-                academicYear: item.classroomId?.academicYear || "",
-            }
-            : null,
-        teacher: item?.teacherId
-            ? {
-                _id: toStringId(item.teacherId?._id || item.teacherId),
-                name: item.teacherId?.name || "",
-                email: item.teacherId?.email || "",
-            }
-            : null,
-        createdAt: item?.createdAt,
-        updatedAt: item?.updatedAt,
+        url: toText(item.url),
+        originalName: toText(item.originalName),
+        kind: toText(item.kind, "resource"),
+        storedName: toText(item.storedName) || undefined,
+        mimeType: toText(item.mimeType) || undefined,
+        size:
+            item.size === null || item.size === undefined
+                ? undefined
+                : toNumberValue(item.size, 0),
     };
 }
 
-async function getTeacherManagedClassIds(currentUser: CurrentUserPayload) {
-    const [ownedClasses, supportedClassIds] = await Promise.all([
-        classroomRepository.findAllByTeacherId(currentUser.userId),
-        classroomMemberRepo.findClassroomIdsByUserId(currentUser.userId, {
-            status: "active",
-            roleInClass: "teacher",
-        }),
-    ]);
-
-    const ids = new Set<string>();
-
-    for (const classroom of ownedClasses) {
-        ids.add(toStringId(classroom?._id));
+function normalizeLatestSubmission(value: unknown) {
+    if (!isObject(value)) {
+        return null;
     }
 
-    for (const id of supportedClassIds) {
-        ids.add(String(id));
-    }
+    const item = value as LatestSubmissionLike;
 
-    return Array.from(ids).filter(Boolean);
+    return {
+        _id: toStringId(item._id),
+        attemptNo: toNumberValue(item.attemptNo, 1),
+        status: toText(item.status),
+        finalScore:
+            item.finalScore === null || item.finalScore === undefined
+                ? null
+                : toNumberValue(item.finalScore, 0),
+        gradeStatus: toText(item.gradeStatus),
+    };
 }
 
-async function ensureTeacherCanManageClass(
-    currentUser: CurrentUserPayload,
-    classroomId: string
-) {
+function mapAssignmentResponse(doc: unknown) {
+    const assignment = toObject(doc) as AssignmentLike;
+
+    const classroomRaw = assignment.classroom ?? assignment.classroomId ?? null;
+    const teacherRaw = assignment.teacher ?? assignment.teacherId ?? null;
+
+    const classroom = isObject(classroomRaw)
+        ? (classroomRaw as ClassroomLike)
+        : null;
+
+    const teacher = isObject(teacherRaw) ? (teacherRaw as TeacherLike) : null;
+
+    return {
+        _id: toStringId(assignment._id),
+        title: toText(assignment.title),
+        description: toText(assignment.description),
+        dueAt: assignment.dueAt ?? null,
+        startAt: assignment.startAt ?? null,
+        status: toText(assignment.status, "published"),
+        displayStatus: toText(
+            assignment.displayStatus ?? assignment.status,
+            "published"
+        ),
+        maxScore: toNumberValue(assignment.maxScore, 10),
+        allowLateSubmit: Boolean(assignment.allowLateSubmit),
+        allowResubmit: Boolean(assignment.allowResubmit),
+        latePenaltyPercent: toNumberValue(assignment.latePenaltyPercent, 0),
+        language: toText(assignment.language, "cpp"),
+        rubricText: toText(assignment.rubricText),
+        rubric: Array.isArray(assignment.rubric) ? assignment.rubric : [],
+        submissionPolicy: isObject(assignment.submissionPolicy)
+            ? assignment.submissionPolicy
+            : {},
+        runnerConfig: isObject(assignment.runnerConfig)
+            ? assignment.runnerConfig
+            : {},
+        aiConfig: isObject(assignment.aiConfig) ? assignment.aiConfig : {},
+        classroom: classroom
+            ? {
+                _id: toStringId(classroom._id),
+                name: toText(classroom.name),
+                code: toText(classroom.code),
+            }
+            : null,
+        teacher: teacher
+            ? {
+                _id: toStringId(teacher._id),
+                name: toText(teacher.name),
+                email: toText(teacher.email),
+            }
+            : null,
+        attachments: Array.isArray(assignment.attachments)
+            ? assignment.attachments.map(normalizeAttachment)
+            : [],
+        createdAt: assignment.createdAt ?? null,
+        updatedAt: assignment.updatedAt ?? null,
+        version: toNumberValue(assignment.version, 1),
+        latestSubmission: normalizeLatestSubmission(assignment.latestSubmission),
+    };
+}
+
+function ensureCanManage(currentUser: CurrentUserPayload) {
     if (!currentUser?.userId) {
         throw new Error("Bạn chưa đăng nhập");
     }
 
-    if (currentUser.role === "admin") {
-        return;
-    }
-
-    if (currentUser.role !== "teacher") {
-        throw new Error("Bạn không có quyền tạo bài tập");
-    }
-
-    const hasPermission = await classroomMemberRepo.isTeacherInClass(
-        classroomId,
-        currentUser.userId
-    );
-
-    if (!hasPermission) {
-        throw new Error("Bạn không có quyền tạo bài tập cho lớp này");
+    if (currentUser.role !== "teacher" && currentUser.role !== "admin") {
+        throw new Error("Bạn không có quyền thực hiện thao tác này");
     }
 }
 
-async function ensureCanManageAssignment(
-    currentUser: CurrentUserPayload,
-    assignmentId: string
-) {
-    const assignment = await assignmentRepository.findById(assignmentId);
-
-    if (!assignment) {
-        throw new Error("Không tìm thấy bài tập");
+function ensureCanRead(currentUser: CurrentUserPayload) {
+    if (!currentUser?.userId) {
+        throw new Error("Bạn chưa đăng nhập");
     }
+}
 
-    const classroomId = toStringId(assignment.classroomId?._id || assignment.classroomId);
+async function getAllClassroomIds(): Promise<string[]> {
+    const classrooms = await classroomRepository.findAll();
 
-    if (currentUser.role === "admin") {
-        return assignment;
-    }
+    return classrooms
+        .map((item) => toStringId(item?._id))
+        .filter(Boolean);
+}
 
-    if (currentUser.role !== "teacher") {
-        throw new Error("Bạn không có quyền thao tác bài tập này");
-    }
+async function getJoinedClassroomIds(userId: string): Promise<string[]> {
+    const ids = await classroomMemberRepo.findClassroomIdsByUserId(userId, {
+        status: "active",
+    });
 
-    const hasPermission = await classroomMemberRepo.isTeacherInClass(
-        classroomId,
-        currentUser.userId
-    );
-
-    if (!hasPermission) {
-        throw new Error("Bạn không có quyền thao tác bài tập này");
-    }
-
-    return assignment;
+    return ids.map((item) => String(item)).filter(Boolean);
 }
 
 export const assignmentService = {
-    async createAssignment(
-        payload: CreateAssignmentPayload,
-        attachments: AssignmentAttachment[],
-        currentUser: CurrentUserPayload
-    ) {
-        const classroom = await classroomRepository.findById(payload.classroomId);
-
-        if (!classroom) {
-            throw new Error("Không tìm thấy lớp học");
-        }
-
-        await ensureTeacherCanManageClass(currentUser, payload.classroomId);
-
-        const created = await assignmentRepository.create({
-            title: payload.title,
-            classroomId: payload.classroomId,
-            teacherId: currentUser.userId,
-            language: payload.language,
-            description: payload.description,
-            rubricText: payload.rubricText,
-            attachments,
-            startAt: new Date(payload.startAt),
-            dueAt: new Date(payload.dueAt),
-            allowLateSubmit: payload.allowLateSubmit,
-            allowResubmit: payload.allowResubmit,
-            latePenaltyPercent: payload.latePenaltyPercent,
-            maxScore: payload.maxScore,
-            status: payload.status,
-        });
-
-        const populated = await assignmentRepository.findById(toStringId(created._id));
-        return serializeAssignment(populated);
-    },
-
     async getAssignments(currentUser: CurrentUserPayload) {
-        if (!currentUser?.userId) {
-            throw new Error("Bạn chưa đăng nhập");
-        }
-
-        let assignments: any[] = [];
+        ensureCanRead(currentUser);
 
         if (currentUser.role === "admin") {
-            const classrooms = await classroomRepository.findAll();
-            const classroomIds = classrooms.map((item) => toStringId(item?._id)).filter(Boolean);
-            assignments = classroomIds.length
-                ? await assignmentRepository.findManyByClassroomIds(classroomIds, {
-                    includeDraft: true,
-                })
-                : [];
-        } else if (currentUser.role === "teacher") {
-            const managedClassIds = await getTeacherManagedClassIds(currentUser);
-            assignments = managedClassIds.length
-                ? await assignmentRepository.findManyByClassroomIds(managedClassIds, {
-                    includeDraft: true,
-                })
-                : [];
-        } else {
-            const joinedClassIds = await classroomMemberRepo.findClassroomIdsByUserId(
-                currentUser.userId,
-                {
-                    status: "active",
-                }
+            const classroomIds = await getAllClassroomIds();
+
+            if (!classroomIds.length) {
+                return [];
+            }
+
+            const docs = await assignmentRepository.findManyByClassroomIds(
+                classroomIds,
+                { includeDraft: true }
             );
 
-            assignments = joinedClassIds.length
-                ? await assignmentRepository.findManyByClassroomIds(joinedClassIds, {
-                    includeDraft: false,
-                })
-                : [];
+            return docs.map(mapAssignmentResponse);
         }
 
-        return assignments.map(serializeAssignment);
+        if (currentUser.role === "teacher") {
+            const docs = await assignmentRepository.findByTeacherId(currentUser.userId);
+            return docs.map(mapAssignmentResponse);
+        }
+
+        const classroomIds = await getJoinedClassroomIds(currentUser.userId);
+
+        if (!classroomIds.length) {
+            return [];
+        }
+
+        const docs = await assignmentRepository.findManyByClassroomIds(
+            classroomIds,
+            { includeDraft: false }
+        );
+
+        return docs.map(mapAssignmentResponse);
     },
 
     async getAssignmentById(id: string, currentUser: CurrentUserPayload) {
-        const item = await assignmentRepository.findById(id);
+        ensureCanRead(currentUser);
 
-        if (!item) {
+        const doc = await assignmentRepository.findById(id);
+
+        if (!doc) {
             throw new Error("Không tìm thấy bài tập");
         }
 
+        const mapped = mapAssignmentResponse(doc);
+
         if (currentUser.role === "admin" || currentUser.role === "teacher") {
-            return serializeAssignment(item);
+            return mapped;
         }
 
-        const classroomId = toStringId(item.classroomId?._id || item.classroomId);
-        const member = await classroomMemberRepo.findMember(classroomId, currentUser.userId);
+        if (!mapped.classroom?._id) {
+            throw new Error("Không thể xác định lớp học của bài tập");
+        }
 
-        if (!member || member.status !== "active") {
+        const joinedClassroomIds = await getJoinedClassroomIds(currentUser.userId);
+
+        if (!joinedClassroomIds.includes(mapped.classroom._id)) {
             throw new Error("Bạn không có quyền xem bài tập này");
         }
 
-        return serializeAssignment(item);
+        if (mapped.status === "draft") {
+            throw new Error("Bài tập chưa được công bố");
+        }
+
+        return mapped;
+    },
+
+    async getAvailableAssignments(currentUser: CurrentUserPayload) {
+        ensureCanRead(currentUser);
+
+        if (currentUser.role === "admin") {
+            const classroomIds = await getAllClassroomIds();
+
+            if (!classroomIds.length) {
+                return [];
+            }
+
+            const docs = await assignmentRepository.findManyByClassroomIds(
+                classroomIds,
+                { includeDraft: false }
+            );
+
+            return docs.map(mapAssignmentResponse);
+        }
+
+        if (currentUser.role === "teacher") {
+            const docs = await assignmentRepository.findByTeacherId(currentUser.userId);
+
+            return docs
+                .map(mapAssignmentResponse)
+                .filter((item) => item.status !== "draft");
+        }
+
+        const classroomIds = await getJoinedClassroomIds(currentUser.userId);
+
+        if (!classroomIds.length) {
+            return [];
+        }
+
+        const docs = await assignmentRepository.findManyByClassroomIds(
+            classroomIds,
+            { includeDraft: false }
+        );
+
+        return docs.map(mapAssignmentResponse);
+    },
+
+    async createAssignment(
+        payload: CreateAssignmentPayload,
+        attachments: AttachmentItem[],
+        currentUser: CurrentUserPayload
+    ) {
+        ensureCanManage(currentUser);
+
+        const created = await assignmentRepository.create({
+            ...payload,
+            classroomId: payload.classroomId,
+            teacherId: currentUser.userId,
+            attachments,
+            version: 1,
+        });
+
+        const createdId = toStringId(toObject(created)._id);
+        const reloaded = await assignmentRepository.findById(createdId);
+
+        if (!reloaded) {
+            throw new Error("Không thể tạo bài tập");
+        }
+
+        return mapAssignmentResponse(reloaded);
     },
 
     async updateAssignment(
-        assignmentId: string,
+        id: string,
         payload: UpdateAssignmentPayload,
-        attachmentInput: {
+        input: {
             keepExistingAttachmentUrls: string[];
-            newAttachments: AssignmentAttachment[];
+            newAttachments: AttachmentItem[];
         },
         currentUser: CurrentUserPayload
     ) {
-        const current = await ensureCanManageAssignment(currentUser, assignmentId);
+        ensureCanManage(currentUser);
 
-        if (payload.classroomId) {
-            const classroom = await classroomRepository.findById(payload.classroomId);
-            if (!classroom) {
-                throw new Error("Không tìm thấy lớp học");
-            }
-            await ensureTeacherCanManageClass(currentUser, payload.classroomId);
+        const current = await assignmentRepository.findById(id);
+
+        if (!current) {
+            throw new Error("Không tìm thấy bài tập");
         }
 
-        const nextStartAt = payload.startAt
-            ? new Date(payload.startAt)
-            : new Date(String(current.startAt));
-        const nextDueAt = payload.dueAt
-            ? new Date(payload.dueAt)
-            : new Date(String(current.dueAt));
+        const currentObject = toObject(current);
+        const ownerTeacherId = toStringId(
+            isObject(currentObject.teacherId)
+                ? currentObject.teacherId._id
+                : currentObject.teacherId
+        );
 
-        if (nextDueAt.getTime() <= nextStartAt.getTime()) {
-            throw new Error("Hạn nộp phải sau ngày bắt đầu");
+        if (currentUser.role !== "admin" && ownerTeacherId !== currentUser.userId) {
+            throw new Error("Bạn không có quyền chỉnh sửa bài tập này");
         }
 
-        const currentAttachments: AssignmentAttachment[] = Array.isArray(current.attachments)
-            ? current.attachments
+        const currentAttachments = Array.isArray(currentObject.attachments)
+            ? currentObject.attachments.map(normalizeAttachment)
             : [];
 
-        const keepSet = new Set(attachmentInput.keepExistingAttachmentUrls || []);
-
-        const keptExistingAttachments = currentAttachments.filter((item) =>
-            keepSet.has(item.url)
+        const keptAttachments = currentAttachments.filter((item) =>
+            input.keepExistingAttachmentUrls.includes(item.url)
         );
 
         const removedAttachmentUrls = currentAttachments
-            .filter((item) => !keepSet.has(item.url))
-            .map((item) => item.url);
+            .filter(
+                (item) => !input.keepExistingAttachmentUrls.includes(item.url)
+            )
+            .map((item) => item.url)
+            .filter(Boolean);
 
-        const nextAttachments = [
-            ...keptExistingAttachments,
-            ...(attachmentInput.newAttachments || []),
-        ];
+        const updateData: Record<string, unknown> = {
+            ...payload,
+            attachments: [...keptAttachments, ...input.newAttachments],
+            version: toNumberValue(currentObject.version, 1) + 1,
+        };
 
-        const updated = await assignmentRepository.updateById(assignmentId, {
-            ...(payload.title !== undefined ? { title: payload.title } : {}),
-            ...(payload.classroomId !== undefined ? { classroomId: payload.classroomId } : {}),
-            ...(payload.language !== undefined ? { language: payload.language } : {}),
-            ...(payload.description !== undefined ? { description: payload.description } : {}),
-            ...(payload.rubricText !== undefined ? { rubricText: payload.rubricText } : {}),
-            ...(payload.startAt !== undefined ? { startAt: nextStartAt } : {}),
-            ...(payload.dueAt !== undefined ? { dueAt: nextDueAt } : {}),
-            ...(payload.allowLateSubmit !== undefined
-                ? { allowLateSubmit: payload.allowLateSubmit }
-                : {}),
-            ...(payload.allowResubmit !== undefined
-                ? { allowResubmit: payload.allowResubmit }
-                : {}),
-            ...(payload.latePenaltyPercent !== undefined
-                ? { latePenaltyPercent: payload.latePenaltyPercent }
-                : {}),
-            ...(payload.maxScore !== undefined ? { maxScore: payload.maxScore } : {}),
-            ...(payload.status !== undefined ? { status: payload.status } : {}),
-            attachments: nextAttachments,
-        });
+        if (payload.classroomId) {
+            updateData.classroomId = payload.classroomId;
+        }
+
+        const updated = await assignmentRepository.updateById(id, updateData);
+
+        if (!updated) {
+            throw new Error("Không thể cập nhật bài tập");
+        }
 
         return {
-            assignment: serializeAssignment(updated),
+            assignment: mapAssignmentResponse(updated),
             removedAttachmentUrls,
         };
     },
 
-    async deleteAssignment(assignmentId: string, currentUser: CurrentUserPayload) {
-        await ensureCanManageAssignment(currentUser, assignmentId);
+    async deleteAssignment(id: string, currentUser: CurrentUserPayload) {
+        ensureCanManage(currentUser);
 
-        const deleted = await assignmentRepository.deleteById(assignmentId);
+        const current = await assignmentRepository.findById(id);
 
-        if (!deleted) {
+        if (!current) {
             throw new Error("Không tìm thấy bài tập");
         }
 
-        return {
-            _id: toStringId(deleted._id),
-        };
-    },
-
-    async getAvailableAssignments(currentUser: CurrentUserPayload) {
-        if (!currentUser?.userId) {
-            throw new Error("Bạn chưa đăng nhập");
-        }
-
-        const joinedClassIds = await classroomMemberRepo.findClassroomIdsByUserId(
-            currentUser.userId,
-            {
-                status: "active",
-            }
+        const currentObject = toObject(current);
+        const ownerTeacherId = toStringId(
+            isObject(currentObject.teacherId)
+                ? currentObject.teacherId._id
+                : currentObject.teacherId
         );
 
-        if (!joinedClassIds.length) {
-            return [];
+        if (currentUser.role !== "admin" && ownerTeacherId !== currentUser.userId) {
+            throw new Error("Bạn không có quyền xóa bài tập này");
         }
 
-        const assignments = await assignmentRepository.findManyByClassroomIds(joinedClassIds, {
-            includeDraft: false,
-        });
+        await assignmentRepository.deleteById(id);
 
-        const serialized = assignments.map(serializeAssignment);
-        const assignmentIds = serialized.map((item) => item._id);
-
-        const latestSubmissions = assignmentIds.length
-            ? await submissionRepository.findLatestMapForStudent(
-                assignmentIds,
-                currentUser.userId
-            )
-            : [];
-
-        const submissionMap = new Map<string, any>();
-        for (const submission of latestSubmissions) {
-            submissionMap.set(toStringId(submission.assignmentId), {
-                _id: toStringId(submission._id),
-                attemptNo: Number(submission.attemptNo || 0),
-                status: submission.status,
-                isLate: Boolean(submission.isLate),
-                repositoryUrl: submission.repositoryUrl || "",
-                note: submission.note || "",
-                files: Array.isArray(submission.files) ? submission.files : [],
-                submittedAt: submission.submittedAt,
-                createdAt: submission.createdAt,
-            });
-        }
-
-        return serialized.map((assignment) => ({
-            ...assignment,
-            latestSubmission: submissionMap.get(assignment._id) || null,
-        }));
+        return {
+            _id: toStringId(currentObject._id),
+            title: toText(currentObject.title),
+        };
     },
 };

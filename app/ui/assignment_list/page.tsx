@@ -1,11 +1,47 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type Dispatch,
+    type ReactNode,
+    type SetStateAction,
+} from "react";
 import Link from "next/link";
+
+type ClassroomOption = {
+    _id: string;
+    name: string;
+    code: string;
+};
 
 type CurrentUser = {
     _id?: string;
     role?: "admin" | "teacher" | "User";
+    name?: string;
+};
+
+type AttachmentItem = {
+    url: string;
+    originalName: string;
+    kind: string;
+};
+
+type RubricCriterion = {
+    code: string;
+    title: string;
+    maxPoints: number;
+    gradingSource: string;
+};
+
+type LatestSubmission = {
+    _id: string;
+    attemptNo: number;
+    status: string;
+    finalScore?: number | null;
+    gradeStatus?: string;
 };
 
 type AssignmentItem = {
@@ -22,22 +58,20 @@ type AssignmentItem = {
     latePenaltyPercent: number;
     language: string;
     rubricText?: string;
+    rubric?: RubricCriterion[];
     classroom: {
         _id: string;
         name: string;
         code: string;
     } | null;
-    teacher?: {
+    teacher: {
         _id: string;
         name: string;
         email: string;
     } | null;
-    attachments: Array<{
-        url: string;
-        originalName: string;
-        kind: string;
-    }>;
+    attachments?: AttachmentItem[];
     createdAt?: string;
+    latestSubmission?: LatestSubmission | null;
 };
 
 type ApiResult<T> = {
@@ -49,6 +83,7 @@ type ApiResult<T> = {
 
 type EditFormState = {
     title: string;
+    classroomId: string;
     description: string;
     rubricText: string;
     startAt: string;
@@ -61,10 +96,128 @@ type EditFormState = {
     status: "draft" | "published" | "closed";
 };
 
+type UnknownRecord = Record<string, unknown>;
+
+function isObject(value: unknown): value is UnknownRecord {
+    return typeof value === "object" && value !== null;
+}
+
+function toText(value: unknown, fallback = ""): string {
+    if (typeof value === "string") return value;
+    if (value === null || value === undefined) return fallback;
+    return String(value);
+}
+
+function toNumberValue(value: unknown, fallback = 0): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeAttachment(value: unknown): AttachmentItem {
+    const item = isObject(value) ? value : {};
+
+    return {
+        url: toText(item.url),
+        originalName: toText(item.originalName),
+        kind: toText(item.kind, "resource"),
+    };
+}
+
+function normalizeRubric(value: unknown): RubricCriterion {
+    const item = isObject(value) ? value : {};
+
+    return {
+        code: toText(item.code),
+        title: toText(item.title),
+        maxPoints: toNumberValue(item.maxPoints, 0),
+        gradingSource: toText(item.gradingSource, "manual"),
+    };
+}
+
+function normalizeLatestSubmission(value: unknown): LatestSubmission | null {
+    if (!isObject(value)) {
+        return null;
+    }
+
+    return {
+        _id: toText(value._id),
+        attemptNo: toNumberValue(value.attemptNo, 1),
+        status: toText(value.status),
+        finalScore:
+            value.finalScore === null || value.finalScore === undefined
+                ? null
+                : toNumberValue(value.finalScore, 0),
+        gradeStatus: toText(value.gradeStatus),
+    };
+}
+
+function normalizeAssignment(raw: unknown): AssignmentItem {
+    const source = isObject(raw) ? raw : {};
+    const classroomRaw = source.classroom ?? source.classroomId ?? null;
+    const teacherRaw = source.teacher ?? source.teacherId ?? null;
+
+    const classroom = isObject(classroomRaw)
+        ? {
+            _id: toText(classroomRaw._id),
+            name: toText(classroomRaw.name),
+            code: toText(classroomRaw.code),
+        }
+        : null;
+
+    const teacher = isObject(teacherRaw)
+        ? {
+            _id: toText(teacherRaw._id),
+            name: toText(teacherRaw.name),
+            email: toText(teacherRaw.email),
+        }
+        : null;
+
+    return {
+        _id: toText(source._id),
+        title: toText(source.title),
+        description: toText(source.description),
+        dueAt: typeof source.dueAt === "string" ? source.dueAt : undefined,
+        startAt: typeof source.startAt === "string" ? source.startAt : undefined,
+        status:
+            source.status === "draft" ||
+            source.status === "published" ||
+            source.status === "closed"
+                ? source.status
+                : "published",
+        displayStatus:
+            source.displayStatus === "draft" ||
+            source.displayStatus === "published" ||
+            source.displayStatus === "closed"
+                ? source.displayStatus
+                : source.status === "draft" ||
+                source.status === "published" ||
+                source.status === "closed"
+                    ? source.status
+                    : "published",
+        maxScore: toNumberValue(source.maxScore, 10),
+        allowLateSubmit: Boolean(source.allowLateSubmit),
+        allowResubmit: Boolean(source.allowResubmit),
+        latePenaltyPercent: toNumberValue(source.latePenaltyPercent, 0),
+        language: toText(source.language, "cpp"),
+        rubricText: toText(source.rubricText),
+        rubric: Array.isArray(source.rubric)
+            ? source.rubric.map(normalizeRubric)
+            : [],
+        classroom,
+        teacher,
+        attachments: Array.isArray(source.attachments)
+            ? source.attachments.map(normalizeAttachment)
+            : [],
+        createdAt: typeof source.createdAt === "string" ? source.createdAt : undefined,
+        latestSubmission: normalizeLatestSubmission(source.latestSubmission),
+    };
+}
+
 function formatDate(value?: string) {
     if (!value) return "--/--/----";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "--/--/----";
+
     return new Intl.DateTimeFormat("vi-VN", {
         day: "2-digit",
         month: "2-digit",
@@ -76,10 +229,12 @@ function formatDateTimeInput(value?: string) {
     if (!value) return "";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
+
     const pad = (n: number) => String(n).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-        date.getHours()
-    )}:${pad(date.getMinutes())}`;
+
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+        date.getDate()
+    )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function getStatusLabel(status: AssignmentItem["displayStatus"]) {
@@ -110,7 +265,7 @@ function Dialog({
     open: boolean;
     title: string;
     onClose: () => void;
-    children: React.ReactNode;
+    children: ReactNode;
     maxWidth?: string;
 }) {
     if (!open) return null;
@@ -143,11 +298,7 @@ function EditAttachmentSection({
                                    onRemoveNew,
                                }: {
     title: string;
-    existingFiles: Array<{
-        url: string;
-        originalName: string;
-        kind: string;
-    }>;
+    existingFiles: AttachmentItem[];
     newFiles: File[];
     onPickFiles: (files: File[]) => void;
     onRemoveExisting: (url: string) => void;
@@ -159,7 +310,9 @@ function EditAttachmentSection({
                 <p className="font-semibold text-slate-900">{title}</p>
 
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-600">
-                    <span className="material-symbols-outlined text-[18px]">upload_file</span>
+                    <span className="material-symbols-outlined text-[18px]">
+                        upload_file
+                    </span>
                     Chọn file
                     <input
                         type="file"
@@ -186,7 +339,9 @@ function EditAttachmentSection({
                             className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
                         >
                             <div>
-                                <p className="font-medium text-slate-800">{file.originalName}</p>
+                                <p className="font-medium text-slate-800">
+                                    {file.originalName}
+                                </p>
                                 <p className="text-xs text-slate-400">Đang có</p>
                             </div>
 
@@ -196,7 +351,9 @@ function EditAttachmentSection({
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-600 hover:bg-red-50"
                                 title="Xóa file"
                             >
-                                <span className="material-symbols-outlined text-[18px]">delete</span>
+                                <span className="material-symbols-outlined text-[18px]">
+                                    delete
+                                </span>
                             </button>
                         </div>
                     ))}
@@ -217,7 +374,9 @@ function EditAttachmentSection({
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-600 hover:bg-red-100"
                                 title="Xóa file mới"
                             >
-                                <span className="material-symbols-outlined text-[18px]">delete</span>
+                                <span className="material-symbols-outlined text-[18px]">
+                                    delete
+                                </span>
                             </button>
                         </div>
                     ))}
@@ -226,8 +385,10 @@ function EditAttachmentSection({
         </div>
     );
 }
+
 export default function AssignmentListPage() {
     const [items, setItems] = useState<AssignmentItem[]>([]);
+    const [classes, setClasses] = useState<ClassroomOption[]>([]);
     const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -240,8 +401,10 @@ export default function AssignmentListPage() {
 
     const [detailItem, setDetailItem] = useState<AssignmentItem | null>(null);
     const [editItem, setEditItem] = useState<AssignmentItem | null>(null);
+
     const [editForm, setEditForm] = useState<EditFormState>({
         title: "",
+        classroomId: "",
         description: "",
         rubricText: "",
         startAt: "",
@@ -254,38 +417,69 @@ export default function AssignmentListPage() {
         status: "published",
     });
 
+    const [editExistingAttachments, setEditExistingAttachments] = useState<
+        AttachmentItem[]
+    >([]);
+    const [editResourceFiles, setEditResourceFiles] = useState<File[]>([]);
+    const [editRubricFiles, setEditRubricFiles] = useState<File[]>([]);
+    const [editTemplateFiles, setEditTemplateFiles] = useState<File[]>([]);
+
     const [menuOpenId, setMenuOpenId] = useState("");
     const menuWrapRef = useRef<HTMLDivElement | null>(null);
 
-    const canManage = currentUser?.role === "teacher" || currentUser?.role === "admin";
+    const canManage =
+        currentUser?.role === "teacher" || currentUser?.role === "admin";
+    const isStudent = currentUser?.role === "User";
 
     const fetchAssignments = async () => {
         try {
             setLoading(true);
             setError("");
 
-            const [userRes, assignmentsRes] = await Promise.all([
+            const [userRes, assignmentsRes, classesRes] = await Promise.all([
                 fetch("/api/auth/me", { cache: "no-store" }),
                 fetch("/api/assignments", { cache: "no-store" }),
+                fetch("/api/classes", { cache: "no-store" }),
             ]);
 
-            const userJson: ApiResult<CurrentUser> = await userRes.json();
-            const result: ApiResult<AssignmentItem[]> = await assignmentsRes.json();
+            const userJson: ApiResult<CurrentUser> = await userRes
+                .json()
+                .catch(() => ({} as ApiResult<CurrentUser>));
+
+            const assignmentsJson: ApiResult<unknown> = await assignmentsRes
+                .json()
+                .catch(() => ({} as ApiResult<unknown>));
+
+            const classesJson: ApiResult<ClassroomOption[]> = await classesRes
+                .json()
+                .catch(() => ({} as ApiResult<ClassroomOption[]>));
 
             if (userRes.ok) {
-                setCurrentUser(userJson.user || null);
+                setCurrentUser(userJson.user || userJson.data || null);
             }
 
             if (!assignmentsRes.ok) {
-                throw new Error(result.message || "Không tải được danh sách bài tập");
+                throw new Error(
+                    assignmentsJson.message || "Không tải được danh sách bài tập"
+                );
             }
 
-            setItems(result.data || []);
+            setItems(
+                Array.isArray(assignmentsJson.data)
+                    ? assignmentsJson.data.map((item) => normalizeAssignment(item))
+                    : []
+            );
+
+            if (classesRes.ok) {
+                setClasses(classesJson.data || []);
+            } else {
+                setClasses([]);
+            }
         } catch (fetchError) {
             setError(
                 fetchError instanceof Error
                     ? fetchError.message
-                    : "Không tải được danh sách bài tập"
+                    : "Không tải được dữ liệu"
             );
         } finally {
             setLoading(false);
@@ -309,15 +503,31 @@ export default function AssignmentListPage() {
     }, []);
 
     const classOptions = useMemo(() => {
+        const fetched = classes.map((item) => ({
+            value: item._id,
+            label: `${item.name} (${item.code})`,
+        }));
+
+        if (fetched.length) {
+            return fetched;
+        }
+
         const map = new Map<string, string>();
+
         for (const item of items) {
             if (item.classroom?._id) {
-                map.set(item.classroom._id, `${item.classroom.name} (${item.classroom.code})`);
+                map.set(
+                    item.classroom._id,
+                    `${item.classroom.name} (${item.classroom.code})`
+                );
             }
         }
 
-        return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
-    }, [items]);
+        return Array.from(map.entries()).map(([value, label]) => ({
+            value,
+            label,
+        }));
+    }, [classes, items]);
 
     const filteredItems = useMemo(() => {
         const normalizedKeyword = keyword.trim().toLowerCase();
@@ -326,12 +536,16 @@ export default function AssignmentListPage() {
             const matchKeyword = normalizedKeyword
                 ? [item.title, item.description, item.classroom?.name, item.classroom?.code]
                     .filter(Boolean)
-                    .some((value) => String(value).toLowerCase().includes(normalizedKeyword))
+                    .some((value) =>
+                        String(value).toLowerCase().includes(normalizedKeyword)
+                    )
                 : true;
 
             const matchStatus =
                 statusFilter === "all" ? true : item.displayStatus === statusFilter;
-            const matchClass = classFilter === "all" ? true : item.classroom?._id === classFilter;
+
+            const matchClass =
+                classFilter === "all" ? true : item.classroom?._id === classFilter;
 
             return matchKeyword && matchStatus && matchClass;
         });
@@ -339,16 +553,49 @@ export default function AssignmentListPage() {
 
     const openDetail = async (id: string) => {
         try {
+            setError("");
+
+            const fallbackItem = items.find((x) => x._id === id) || null;
+
             const res = await fetch(`/api/assignments/${id}`, { cache: "no-store" });
-            const json: ApiResult<AssignmentItem> = await res.json();
-            if (!res.ok) throw new Error(json.message || "Không lấy được chi tiết bài tập");
-            setDetailItem(json.data || null);
+            const json: ApiResult<unknown> = await res
+                .json()
+                .catch(() => ({} as ApiResult<unknown>));
+
+            if (!res.ok) {
+                throw new Error(json.message || "Không lấy được chi tiết bài tập");
+            }
+
+            if (json.data) {
+                const normalized = normalizeAssignment(json.data);
+
+                setDetailItem(
+                    normalized.classroom
+                        ? normalized
+                        : fallbackItem
+                            ? {
+                                ...normalized,
+                                classroom: fallbackItem.classroom,
+                                teacher: normalized.teacher || fallbackItem.teacher || null,
+                                attachments:
+                                    normalized.attachments?.length
+                                        ? normalized.attachments
+                                        : fallbackItem.attachments || [],
+                            }
+                            : normalized
+                );
+                return;
+            }
+
+            setDetailItem(fallbackItem);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Không lấy được chi tiết bài tập");
+            setError(
+                err instanceof Error ? err.message : "Không lấy được chi tiết bài tập"
+            );
         }
     };
 
-    const openEdit = (item: AssignmentItem) => {
+    const applyEditItem = (item: AssignmentItem) => {
         setEditItem(item);
         setEditExistingAttachments(item.attachments || []);
         setEditResourceFiles([]);
@@ -357,6 +604,7 @@ export default function AssignmentListPage() {
 
         setEditForm({
             title: item.title || "",
+            classroomId: item.classroom?._id || "",
             description: item.description || "",
             rubricText: item.rubricText || "",
             startAt: formatDateTimeInput(item.startAt || item.createdAt),
@@ -369,25 +617,57 @@ export default function AssignmentListPage() {
             status: item.status || "published",
         });
     };
-    const appendFiles = (
-        setter: React.Dispatch<React.SetStateAction<File[]>>
-    ) => {
-        return (files: File[]) => {
+
+    const openEdit = async (item: AssignmentItem) => {
+        try {
+            setError("");
+
+            const res = await fetch(`/api/assignments/${item._id}`, {
+                cache: "no-store",
+            });
+
+            const json: ApiResult<unknown> = await res
+                .json()
+                .catch(() => ({} as ApiResult<unknown>));
+
+            if (res.ok && json.data) {
+                const normalized = normalizeAssignment(json.data);
+
+                applyEditItem(
+                    normalized.classroom
+                        ? normalized
+                        : {
+                            ...normalized,
+                            classroom: item.classroom,
+                            teacher: normalized.teacher || item.teacher || null,
+                            attachments:
+                                normalized.attachments?.length
+                                    ? normalized.attachments
+                                    : item.attachments || [],
+                        }
+                );
+                return;
+            }
+
+            applyEditItem(item);
+        } catch {
+            applyEditItem(item);
+        }
+    };
+
+    const appendFiles =
+        (setter: Dispatch<SetStateAction<File[]>>) => (files: File[]) => {
             setter((prev) => [...prev, ...files]);
         };
-    };
 
     const removeExistingAttachment = (url: string) => {
         setEditExistingAttachments((prev) => prev.filter((item) => item.url !== url));
     };
 
-    const removeNewFile = (
-        setter: React.Dispatch<React.SetStateAction<File[]>>
-    ) => {
-        return (index: number) => {
+    const removeNewFile =
+        (setter: Dispatch<SetStateAction<File[]>>) => (index: number) => {
             setter((prev) => prev.filter((_, i) => i !== index));
         };
-    };
 
     const handleUpdate = async () => {
         if (!editItem) return;
@@ -397,12 +677,32 @@ export default function AssignmentListPage() {
             setError("");
             setSuccess("");
 
+            if (!editForm.title.trim()) {
+                throw new Error("Tên bài tập không được để trống");
+            }
+
+            if (!editForm.classroomId) {
+                throw new Error("Vui lòng chọn lớp học");
+            }
+
+            if (!editForm.startAt || !editForm.dueAt) {
+                throw new Error("Vui lòng nhập ngày bắt đầu và hạn nộp");
+            }
+
+            const startAt = new Date(editForm.startAt);
+            const dueAt = new Date(editForm.dueAt);
+
+            if (Number.isNaN(startAt.getTime()) || Number.isNaN(dueAt.getTime())) {
+                throw new Error("Ngày giờ không hợp lệ");
+            }
+
             const formData = new FormData();
             formData.set("title", editForm.title);
+            formData.set("classroomId", editForm.classroomId);
             formData.set("description", editForm.description);
             formData.set("rubricText", editForm.rubricText);
-            formData.set("startAt", new Date(editForm.startAt).toISOString());
-            formData.set("dueAt", new Date(editForm.dueAt).toISOString());
+            formData.set("startAt", startAt.toISOString());
+            formData.set("dueAt", dueAt.toISOString());
             formData.set("maxScore", editForm.maxScore);
             formData.set("language", editForm.language);
             formData.set("allowLateSubmit", String(editForm.allowLateSubmit));
@@ -431,7 +731,7 @@ export default function AssignmentListPage() {
                 body: formData,
             });
 
-            const json = await res.json();
+            const json: { message?: string } = await res.json().catch(() => ({}));
 
             if (!res.ok) {
                 throw new Error(json.message || "Cập nhật bài tập thất bại");
@@ -445,7 +745,9 @@ export default function AssignmentListPage() {
             setEditTemplateFiles([]);
             await fetchAssignments();
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Cập nhật bài tập thất bại");
+            setError(
+                err instanceof Error ? err.message : "Cập nhật bài tập thất bại"
+            );
         } finally {
             setSaving(false);
         }
@@ -464,16 +766,18 @@ export default function AssignmentListPage() {
                 method: "DELETE",
             });
 
-            const json = await res.json();
+            const json: { message?: string } = await res.json().catch(() => ({}));
 
             if (!res.ok) {
                 throw new Error(json.message || "Xóa bài tập thất bại");
             }
 
             setSuccess("Đã xóa bài tập thành công");
+
             if (detailItem?._id === id) {
                 setDetailItem(null);
             }
+
             await fetchAssignments();
         } catch (err) {
             setError(err instanceof Error ? err.message : "Xóa bài tập thất bại");
@@ -482,12 +786,7 @@ export default function AssignmentListPage() {
         }
     };
 
-    const [editExistingAttachments, setEditExistingAttachments] = useState<
-        AssignmentItem["attachments"]
-    >([]);
-    const [editResourceFiles, setEditResourceFiles] = useState<File[]>([]);
-    const [editRubricFiles, setEditRubricFiles] = useState<File[]>([]);
-    const [editTemplateFiles, setEditTemplateFiles] = useState<File[]>([]);
+    const tableColSpan = canManage ? (isStudent ? 9 : 8) : isStudent ? 8 : 7;
 
     return (
         <div className="space-y-6">
@@ -497,19 +796,36 @@ export default function AssignmentListPage() {
                         Danh sách bài tập
                     </h1>
                     <p className="mt-1 text-slate-500">
-                        Click vào bài tập để xem chi tiết, sửa hoặc xóa bài tập.
+                        Xem chi tiết bài tập, rubric, bài nộp gần nhất và thao tác
+                        sửa/xóa theo quyền.
                     </p>
                 </div>
 
-                {canManage ? (
-                    <Link
-                        href="/ui/create_assignment"
-                        className="inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 font-semibold text-white shadow-lg shadow-orange-100 transition hover:bg-orange-600"
-                    >
-                        <span className="material-symbols-outlined text-[18px]">add</span>
-                        Tạo bài tập mới
-                    </Link>
-                ) : null}
+                <div className="flex flex-wrap gap-3">
+                    {canManage ? (
+                        <Link
+                            href="/ui/create_assignment"
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 font-semibold text-white shadow-lg shadow-orange-100 transition hover:bg-orange-600"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">
+                                add
+                            </span>
+                            Tạo bài tập mới
+                        </Link>
+                    ) : null}
+
+                    {isStudent ? (
+                        <Link
+                            href="/ui/submit_assignment"
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 font-semibold text-white"
+                        >
+                            <span className="material-symbols-outlined text-[18px]">
+                                upload
+                            </span>
+                            Đi tới nộp bài
+                        </Link>
+                    ) : null}
+                </div>
             </div>
 
             {error ? (
@@ -566,7 +882,7 @@ export default function AssignmentListPage() {
 
             <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
                 <div className="max-h-[520px] overflow-auto">
-                    <table className="w-full min-w-[1040px]">
+                    <table className="w-full min-w-[1120px]">
                         <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
                         <tr>
                             <th className="px-5 py-4">Bài tập</th>
@@ -576,7 +892,12 @@ export default function AssignmentListPage() {
                             <th className="px-5 py-4">Điểm tối đa</th>
                             <th className="px-5 py-4">Tệp đính kèm</th>
                             <th className="px-5 py-4">Trạng thái</th>
-                            {canManage ? <th className="px-5 py-4 text-right">Thao tác</th> : null}
+                            {isStudent ? (
+                                <th className="px-5 py-4">Bài nộp gần nhất</th>
+                            ) : null}
+                            {canManage ? (
+                                <th className="px-5 py-4 text-right">Thao tác</th>
+                            ) : null}
                         </tr>
                         </thead>
 
@@ -584,7 +905,7 @@ export default function AssignmentListPage() {
                         {loading ? (
                             <tr>
                                 <td
-                                    colSpan={canManage ? 8 : 7}
+                                    colSpan={tableColSpan}
                                     className="px-5 py-10 text-center text-slate-500"
                                 >
                                     Đang tải danh sách bài tập...
@@ -601,12 +922,15 @@ export default function AssignmentListPage() {
                                         onClick={() => void openDetail(item._id)}
                                     >
                                         <div className="space-y-1">
-                                            <p className="font-semibold text-slate-900">{item.title}</p>
-                                            <p className="max-w-md text-sm text-slate-500 line-clamp-2">
+                                            <p className="font-semibold text-slate-900">
+                                                {item.title}
+                                            </p>
+                                            <p className="line-clamp-2 max-w-md text-sm text-slate-500">
                                                 {item.description || "Chưa có mô tả"}
                                             </p>
                                         </div>
                                     </td>
+
                                     <td
                                         className="cursor-pointer px-5 py-4 text-sm text-slate-600"
                                         onClick={() => void openDetail(item._id)}
@@ -622,45 +946,53 @@ export default function AssignmentListPage() {
                                             "--"
                                         )}
                                     </td>
+
                                     <td
                                         className="cursor-pointer px-5 py-4 text-sm text-slate-600"
                                         onClick={() => void openDetail(item._id)}
                                     >
                                         {formatDate(item.startAt || item.createdAt)}
                                     </td>
+
                                     <td
                                         className="cursor-pointer px-5 py-4 text-sm text-slate-600"
                                         onClick={() => void openDetail(item._id)}
                                     >
                                         {formatDate(item.dueAt)}
                                     </td>
+
                                     <td
                                         className="cursor-pointer px-5 py-4 text-sm font-medium text-slate-700"
                                         onClick={() => void openDetail(item._id)}
                                     >
                                         {item.maxScore}
                                     </td>
+
                                     <td
                                         className="cursor-pointer px-5 py-4 text-sm text-slate-600"
                                         onClick={() => void openDetail(item._id)}
                                     >
-                                        {item.attachments.length ? (
+                                        {(item.attachments || []).length ? (
                                             <div className="space-y-2">
-                                                {item.attachments.slice(0, 2).map((file) => (
-                                                    <a
-                                                        key={`${item._id}-${file.url}`}
-                                                        href={file.url}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="block text-orange-600 hover:underline"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    >
-                                                        {file.originalName}
-                                                    </a>
-                                                ))}
-                                                {item.attachments.length > 2 ? (
+                                                {(item.attachments || [])
+                                                    .slice(0, 2)
+                                                    .map((file) => (
+                                                        <a
+                                                            key={`${item._id}-${file.url}`}
+                                                            href={file.url}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="block text-orange-600 hover:underline"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            {file.originalName}
+                                                        </a>
+                                                    ))}
+
+                                                {(item.attachments || []).length > 2 ? (
                                                     <p className="text-xs text-slate-400">
-                                                        +{item.attachments.length - 2} file khác
+                                                        +{(item.attachments || []).length - 2} file
+                                                        khác
                                                     </p>
                                                 ) : null}
                                             </div>
@@ -668,6 +1000,7 @@ export default function AssignmentListPage() {
                                             "Không có"
                                         )}
                                     </td>
+
                                     <td
                                         className="cursor-pointer px-5 py-4"
                                         onClick={() => void openDetail(item._id)}
@@ -680,6 +1013,28 @@ export default function AssignmentListPage() {
                                                 {getStatusLabel(item.displayStatus)}
                                             </span>
                                     </td>
+
+                                    {isStudent ? (
+                                        <td
+                                            className="cursor-pointer px-5 py-4 text-sm text-slate-600"
+                                            onClick={() => void openDetail(item._id)}
+                                        >
+                                            {item.latestSubmission ? (
+                                                <div className="space-y-1">
+                                                    <p className="font-medium text-slate-800">
+                                                        Attempt #{item.latestSubmission.attemptNo}
+                                                    </p>
+                                                    <p>{item.latestSubmission.status}</p>
+                                                    <p className="text-xs text-slate-500">
+                                                        Điểm:{" "}
+                                                        {item.latestSubmission.finalScore ?? "Chưa có"}
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                "Chưa nộp"
+                                            )}
+                                        </td>
+                                    ) : null}
 
                                     {canManage ? (
                                         <td className="px-5 py-4 text-right">
@@ -721,7 +1076,7 @@ export default function AssignmentListPage() {
                                                             type="button"
                                                             onClick={() => {
                                                                 setMenuOpenId("");
-                                                                openEdit(item);
+                                                                void openEdit(item);
                                                             }}
                                                             className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50"
                                                         >
@@ -743,7 +1098,9 @@ export default function AssignmentListPage() {
                                                                 <span className="material-symbols-outlined text-[18px]">
                                                                     delete
                                                                 </span>
-                                                            {deletingId === item._id ? "Đang xóa..." : "Xóa"}
+                                                            {deletingId === item._id
+                                                                ? "Đang xóa..."
+                                                                : "Xóa"}
                                                         </button>
                                                     </div>
                                                 ) : null}
@@ -755,7 +1112,7 @@ export default function AssignmentListPage() {
                         ) : (
                             <tr>
                                 <td
-                                    colSpan={canManage ? 8 : 7}
+                                    colSpan={tableColSpan}
                                     className="px-5 py-10 text-center text-slate-500"
                                 >
                                     Chưa có bài tập nào khớp bộ lọc hiện tại.
@@ -771,41 +1128,70 @@ export default function AssignmentListPage() {
                 open={Boolean(detailItem)}
                 title="Chi tiết bài tập"
                 onClose={() => setDetailItem(null)}
-                maxWidth="max-w-4xl"
+                maxWidth="max-w-5xl"
             >
                 {detailItem ? (
                     <div className="space-y-6">
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                             <div className="rounded-2xl bg-slate-50 p-4">
                                 <p className="text-sm text-slate-500">Tên bài tập</p>
                                 <p className="mt-1 text-lg font-bold text-slate-900">
                                     {detailItem.title}
                                 </p>
                             </div>
+
                             <div className="rounded-2xl bg-slate-50 p-4">
                                 <p className="text-sm text-slate-500">Lớp học</p>
                                 <p className="mt-1 font-semibold text-slate-900">
-                                    {detailItem.classroom?.name} ({detailItem.classroom?.code})
+                                    {detailItem.classroom
+                                        ? `${detailItem.classroom.name} (${detailItem.classroom.code})`
+                                        : "--"}
                                 </p>
                             </div>
+
                             <div className="rounded-2xl bg-slate-50 p-4">
                                 <p className="text-sm text-slate-500">Ngày giao</p>
                                 <p className="mt-1 font-semibold text-slate-900">
                                     {formatDate(detailItem.startAt || detailItem.createdAt)}
                                 </p>
                             </div>
+
                             <div className="rounded-2xl bg-slate-50 p-4">
                                 <p className="text-sm text-slate-500">Hạn nộp</p>
                                 <p className="mt-1 font-semibold text-slate-900">
                                     {formatDate(detailItem.dueAt)}
                                 </p>
                             </div>
+
                             <div className="rounded-2xl bg-slate-50 p-4">
                                 <p className="text-sm text-slate-500">Điểm tối đa</p>
                                 <p className="mt-1 font-semibold text-slate-900">
                                     {detailItem.maxScore}
                                 </p>
                             </div>
+
+                            <div className="rounded-2xl bg-slate-50 p-4">
+                                <p className="text-sm text-slate-500">Ngôn ngữ</p>
+                                <p className="mt-1 font-semibold text-slate-900">
+                                    {detailItem.language || "--"}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl bg-slate-50 p-4">
+                                <p className="text-sm text-slate-500">Chính sách nộp bài</p>
+                                <div className="mt-1 space-y-1 text-sm text-slate-700">
+                                    <p>
+                                        Late submit: {detailItem.allowLateSubmit ? "Có" : "Không"}
+                                    </p>
+                                    <p>
+                                        Resubmit: {detailItem.allowResubmit ? "Có" : "Không"}
+                                    </p>
+                                    <p>
+                                        Late penalty: {detailItem.latePenaltyPercent || 0}%
+                                    </p>
+                                </div>
+                            </div>
+
                             <div className="rounded-2xl bg-slate-50 p-4">
                                 <p className="text-sm text-slate-500">Trạng thái</p>
                                 <span
@@ -826,17 +1212,54 @@ export default function AssignmentListPage() {
                         </div>
 
                         <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
-                            <p className="mb-2 font-semibold text-orange-700">Rubric / thang điểm</p>
+                            <p className="mb-2 font-semibold text-orange-700">
+                                Rubric / thang điểm
+                            </p>
                             <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">
                                 {detailItem.rubricText || "Chưa có rubric"}
                             </p>
                         </div>
 
                         <div className="rounded-2xl border border-slate-200 p-4">
-                            <p className="mb-3 font-semibold text-slate-900">File đính kèm</p>
-                            {detailItem.attachments.length ? (
+                            <p className="mb-3 font-semibold text-slate-900">
+                                Rubric cấu trúc
+                            </p>
+                            {Array.isArray(detailItem.rubric) && detailItem.rubric.length ? (
                                 <div className="space-y-3">
-                                    {detailItem.attachments.map((file) => (
+                                    {detailItem.rubric.map((criterion) => (
+                                        <div
+                                            key={criterion.code}
+                                            className="flex items-start justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3"
+                                        >
+                                            <div>
+                                                <p className="font-semibold text-slate-900">
+                                                    {criterion.title}
+                                                </p>
+                                                <p className="mt-1 text-sm text-slate-500">
+                                                    {criterion.code} · {criterion.gradingSource}
+                                                </p>
+                                            </div>
+
+                                            <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+                                                {criterion.maxPoints}đ
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-slate-500">
+                                    Chưa có rubric cấu trúc.
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 p-4">
+                            <p className="mb-3 font-semibold text-slate-900">
+                                File đính kèm
+                            </p>
+                            {(detailItem.attachments || []).length ? (
+                                <div className="space-y-3">
+                                    {(detailItem.attachments || []).map((file) => (
                                         <a
                                             key={file.url}
                                             href={file.url}
@@ -852,8 +1275,87 @@ export default function AssignmentListPage() {
                                     ))}
                                 </div>
                             ) : (
-                                <p className="text-sm text-slate-500">Không có file đính kèm</p>
+                                <p className="text-sm text-slate-500">
+                                    Không có file đính kèm
+                                </p>
                             )}
+                        </div>
+
+                        {detailItem.teacher ? (
+                            <div className="rounded-2xl border border-slate-200 p-4">
+                                <p className="mb-2 font-semibold text-slate-900">
+                                    Giảng viên phụ trách
+                                </p>
+                                <p className="text-sm text-slate-700">
+                                    {detailItem.teacher.name} - {detailItem.teacher.email}
+                                </p>
+                            </div>
+                        ) : null}
+
+                        {detailItem.latestSubmission ? (
+                            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                                <p className="font-semibold text-blue-800">
+                                    Bài nộp gần nhất
+                                </p>
+                                <p className="mt-2 text-sm text-blue-700">
+                                    Attempt #{detailItem.latestSubmission.attemptNo} -{" "}
+                                    {detailItem.latestSubmission.status}
+                                </p>
+                                <p className="mt-1 text-sm text-blue-700">
+                                    Grade status:{" "}
+                                    {detailItem.latestSubmission.gradeStatus || "pending"}
+                                </p>
+                                <p className="mt-1 text-sm text-blue-700">
+                                    Final score:{" "}
+                                    {detailItem.latestSubmission.finalScore ?? "Chưa có"}
+                                </p>
+                            </div>
+                        ) : null}
+
+                        <div className="flex flex-wrap justify-end gap-3">
+                            {isStudent ? (
+                                <>
+                                    <Link
+                                        href="/ui/submit_assignment"
+                                        className="rounded-2xl bg-orange-500 px-4 py-3 text-sm font-semibold text-white"
+                                    >
+                                        Đi tới nộp bài
+                                    </Link>
+
+                                    {detailItem.latestSubmission?._id ? (
+                                        <Link
+                                            href={`/ui/grading_detail?submissionId=${detailItem.latestSubmission._id}`}
+                                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                                        >
+                                            Xem kết quả chấm
+                                        </Link>
+                                    ) : null}
+                                </>
+                            ) : null}
+
+                            {canManage ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setDetailItem(null);
+                                            void openEdit(detailItem);
+                                        }}
+                                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+                                    >
+                                        Sửa bài tập
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleDelete(detailItem._id)}
+                                        disabled={deletingId === detailItem._id}
+                                        className="rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-600 disabled:opacity-60"
+                                    >
+                                        {deletingId === detailItem._id ? "Đang xóa..." : "Xóa"}
+                                    </button>
+                                </>
+                            ) : null}
                         </div>
                     </div>
                 ) : null}
@@ -874,10 +1376,37 @@ export default function AssignmentListPage() {
                             <input
                                 value={editForm.title}
                                 onChange={(e) =>
-                                    setEditForm((prev) => ({ ...prev, title: e.target.value }))
+                                    setEditForm((prev) => ({
+                                        ...prev,
+                                        title: e.target.value,
+                                    }))
                                 }
                                 className="h-12 w-full rounded-2xl border border-slate-200 px-4 outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
                             />
+                        </div>
+
+                        <div>
+                            <label className="mb-2 block text-sm font-semibold text-slate-700">
+                                Lớp học
+                            </label>
+
+                            <select
+                                value={editForm.classroomId}
+                                onChange={(e) =>
+                                    setEditForm((prev) => ({
+                                        ...prev,
+                                        classroomId: e.target.value,
+                                    }))
+                                }
+                                className="h-12 w-full rounded-2xl border border-slate-200 px-4 outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+                            >
+                                <option value="">Chọn lớp học</option>
+                                {classOptions.map((item) => (
+                                    <option key={item.value} value={item.value}>
+                                        {item.label}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
 
                         <div>
@@ -1030,7 +1559,9 @@ export default function AssignmentListPage() {
                                     }))
                                 }
                             />
-                            <span className="text-sm text-slate-700">Cho phép nộp trễ</span>
+                            <span className="text-sm text-slate-700">
+                                Cho phép nộp trễ
+                            </span>
                         </label>
 
                         <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3">
@@ -1044,12 +1575,17 @@ export default function AssignmentListPage() {
                                     }))
                                 }
                             />
-                            <span className="text-sm text-slate-700">Cho phép nộp lại</span>
+                            <span className="text-sm text-slate-700">
+                                Cho phép nộp lại
+                            </span>
                         </label>
+
                         <div className="space-y-4">
                             <EditAttachmentSection
                                 title="File đính kèm đề bài"
-                                existingFiles={editExistingAttachments.filter((item) => item.kind === "resource")}
+                                existingFiles={editExistingAttachments.filter(
+                                    (item) => item.kind === "resource"
+                                )}
                                 newFiles={editResourceFiles}
                                 onPickFiles={appendFiles(setEditResourceFiles)}
                                 onRemoveExisting={removeExistingAttachment}
@@ -1058,7 +1594,9 @@ export default function AssignmentListPage() {
 
                             <EditAttachmentSection
                                 title="File rubric / thang điểm"
-                                existingFiles={editExistingAttachments.filter((item) => item.kind === "rubric")}
+                                existingFiles={editExistingAttachments.filter(
+                                    (item) => item.kind === "rubric"
+                                )}
                                 newFiles={editRubricFiles}
                                 onPickFiles={appendFiles(setEditRubricFiles)}
                                 onRemoveExisting={removeExistingAttachment}
@@ -1067,7 +1605,9 @@ export default function AssignmentListPage() {
 
                             <EditAttachmentSection
                                 title="Template / test case / starter code"
-                                existingFiles={editExistingAttachments.filter((item) => item.kind === "template")}
+                                existingFiles={editExistingAttachments.filter(
+                                    (item) => item.kind === "template"
+                                )}
                                 newFiles={editTemplateFiles}
                                 onPickFiles={appendFiles(setEditTemplateFiles)}
                                 onRemoveExisting={removeExistingAttachment}
@@ -1083,6 +1623,7 @@ export default function AssignmentListPage() {
                             >
                                 Hủy
                             </button>
+
                             <button
                                 type="button"
                                 onClick={() => void handleUpdate()}

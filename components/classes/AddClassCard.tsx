@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import type { Semester } from "@/app/ui/my_classes/type/classroom.type";
+import type { ClassroomSemester } from "@/app/ui/my_classes/type/classroom.type";
 
 type AddClassPayload = {
     name: string;
     code: string;
     description?: string;
-    semester: Semester;
+    semester: ClassroomSemester;
     academicYear: string;
 };
 
@@ -22,7 +22,7 @@ export function AddClassCard({ onCreate, loading = false }: AddClassCardProps) {
     const [name, setName] = useState("");
     const [code, setCode] = useState("");
     const [description, setDescription] = useState("");
-    const [semester, setSemester] = useState<Semester>("HK1");
+    const [semester, setSemester] = useState<ClassroomSemester>("HK1");
     const [academicYear, setAcademicYear] = useState(DEFAULT_YEAR);
     const [error, setError] = useState("");
 
@@ -102,7 +102,7 @@ export function AddClassCard({ onCreate, loading = false }: AddClassCardProps) {
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <select
                         value={semester}
-                        onChange={(e) => setSemester(e.target.value as Semester)}
+                        onChange={(e) => setSemester(e.target.value as ClassroomSemester)}
                         className="h-12 w-full rounded-2xl border border-slate-200 px-4 outline-none focus:border-orange-300"
                     >
                         <option value="HK1">Học kỳ 1</option>

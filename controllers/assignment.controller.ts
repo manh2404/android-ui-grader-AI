@@ -1,7 +1,7 @@
 import { ZodError } from "zod";
 import { errorResponse, successResponse } from "@/lib/api-response";
 import { getCurrentUserFromCookie } from "@/lib/current-user";
-import {deleteLocalFilesByUrls, saveFilesToLocal} from "@/lib/upload-local";
+import { deleteLocalFilesByUrls, saveFilesToLocal } from "@/lib/upload-local";
 import { assignmentService } from "@/services/assignment.service";
 import {
     extractAssignmentPayload,

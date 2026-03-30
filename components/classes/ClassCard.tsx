@@ -11,6 +11,12 @@ type ClassCardProps = {
     canManageClassUI: boolean;
 };
 
+type ClassStatsResponse = {
+    activeStudentCount?: number;
+    canManageMembers?: boolean;
+    message?: string;
+};
+
 export function ClassCard({
                               classroom,
                               onDelete,
@@ -18,8 +24,65 @@ export function ClassCard({
                               onEdit,
                               canManageClassUI,
                           }: ClassCardProps) {
+    const fallbackStudentCount =
+        classroom.approvedStudentCount ??
+        classroom.studentCount ??
+        classroom.totalStudents ??
+        0;
+
     const [openMenu, setOpenMenu] = useState(false);
+    const [studentCount, setStudentCount] = useState<number>(fallbackStudentCount);
     const menuRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        let ignore = false;
+
+        async function loadStudentCount() {
+            if (!classroom?._id) {
+                if (!ignore) setStudentCount(0);
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/classes/${classroom._id}/stats`, {
+                    method: "GET",
+                    cache: "no-store",
+                    credentials: "include",
+                });
+
+                const result: ClassStatsResponse = await res.json().catch(() => ({}));
+
+                if (!res.ok) {
+                    if (!ignore) {
+                        setStudentCount(fallbackStudentCount);
+                    }
+                    return;
+                }
+
+                const count = Number(result.activeStudentCount);
+
+                if (!ignore) {
+                    setStudentCount(Number.isFinite(count) ? count : 0);
+                }
+            } catch {
+                if (!ignore) {
+                    setStudentCount(fallbackStudentCount);
+                }
+            }
+        }
+
+        void loadStudentCount();
+
+        return () => {
+            ignore = true;
+        };
+    }, [
+        classroom?._id,
+        classroom?.approvedStudentCount,
+        classroom?.studentCount,
+        classroom?.totalStudents,
+        fallbackStudentCount,
+    ]);
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -136,6 +199,10 @@ export function ClassCard({
 
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
                     {classroom.status || "active"}
+                </span>
+
+                <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-600">
+                    {studentCount} sinh viên
                 </span>
             </div>
 

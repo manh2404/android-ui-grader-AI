@@ -1,9 +1,15 @@
 import { ZodError } from "zod";
 import { errorResponse, successResponse } from "@/lib/api-response";
 import { getCurrentUserFromCookie } from "@/lib/current-user";
-import { saveFilesToLocal } from "@/lib/upload-local";
-import { submissionService } from "@/services/submission.service";
+import { saveFileToLocal, saveFilesToLocal } from "@/lib/upload-local";
+import { submissionService}  from "@/services/submission.service";
 import { extractSubmissionPayload } from "@/validations/submission.validation";
+
+function extractFiles(formData: FormData, fieldName: string) {
+    return formData
+        .getAll(fieldName)
+        .filter((item): item is File => item instanceof File && item.size > 0);
+}
 
 function resolveError(error: unknown) {
     if (error instanceof ZodError) {
@@ -34,14 +40,37 @@ export const submissionController = {
             const formData = await request.formData();
             const payload = extractSubmissionPayload(formData);
 
-            const files = formData
-                .getAll("submissionFiles")
-                .filter((item): item is File => item instanceof File && item.size > 0);
+            const explicitSourceArchive = formData.get("sourceArchive");
+            const sourceArchiveFile =
+                explicitSourceArchive instanceof File && explicitSourceArchive.size > 0
+                    ? explicitSourceArchive
+                    : null;
 
-            const savedFiles = await saveFilesToLocal(files, "submissions");
+            const legacySubmissionFiles = extractFiles(formData, "submissionFiles");
+            const screenshotsInput = extractFiles(formData, "screenshots");
+
+            const fallbackSourceArchive =
+                !sourceArchiveFile && legacySubmissionFiles.length ? legacySubmissionFiles[0] : null;
+
+            const screenshots = screenshotsInput.length
+                ? screenshotsInput
+                : legacySubmissionFiles.slice(sourceArchiveFile ? 0 : 1);
+
+            const [savedSourceArchive, savedScreenshots] = await Promise.all([
+                saveFileToLocal(sourceArchiveFile || fallbackSourceArchive, "submissions/source"),
+                saveFilesToLocal(screenshots, "submissions/screenshots"),
+            ]);
+
             const created = await submissionService.createSubmission(
                 payload,
-                savedFiles,
+                {
+                    sourceArchive: savedSourceArchive,
+                    screenshots: savedScreenshots,
+                    files: [
+                        ...(savedSourceArchive ? [savedSourceArchive] : []),
+                        ...savedScreenshots,
+                    ],
+                },
                 currentUser
             );
 

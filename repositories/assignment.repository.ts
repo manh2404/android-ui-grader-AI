@@ -2,6 +2,17 @@ import "@/models/Classroom.model";
 import "@/models/User.model";
 import Assignment from "@/models/Assignment.model";
 
+const ASSIGNMENT_POPULATE = [
+    {
+        path: "classroomId",
+        select: "name code semester academicYear",
+    },
+    {
+        path: "teacherId",
+        select: "name email studentCode",
+    },
+];
+
 export const assignmentRepository = {
     create(data: Record<string, unknown>) {
         return Assignment.create(data);
@@ -9,11 +20,14 @@ export const assignmentRepository = {
 
     findById(id: string) {
         return Assignment.findById(id)
-            .populate("classroomId", "name code semester academicYear")
-            .populate("teacherId", "name email studentCode");
+            .populate(ASSIGNMENT_POPULATE)
+            .lean();
     },
 
-    findManyByClassroomIds(classroomIds: string[], options?: { includeDraft?: boolean }) {
+    findManyByClassroomIds(
+        classroomIds: string[],
+        options?: { includeDraft?: boolean }
+    ) {
         const filter: Record<string, unknown> = {
             classroomId: { $in: classroomIds },
         };
@@ -23,16 +37,16 @@ export const assignmentRepository = {
         }
 
         return Assignment.find(filter)
-            .populate("classroomId", "name code semester academicYear")
-            .populate("teacherId", "name email studentCode")
-            .sort({ createdAt: -1 });
+            .populate(ASSIGNMENT_POPULATE)
+            .sort({ createdAt: -1 })
+            .lean();
     },
 
     findByTeacherId(teacherId: string) {
         return Assignment.find({ teacherId })
-            .populate("classroomId", "name code semester academicYear")
-            .populate("teacherId", "name email studentCode")
-            .sort({ createdAt: -1 });
+            .populate(ASSIGNMENT_POPULATE)
+            .sort({ createdAt: -1 })
+            .lean();
     },
 
     updateById(id: string, data: Record<string, unknown>) {
@@ -40,11 +54,11 @@ export const assignmentRepository = {
             new: true,
             runValidators: true,
         })
-            .populate("classroomId", "name code semester academicYear")
-            .populate("teacherId", "name email studentCode");
+            .populate(ASSIGNMENT_POPULATE)
+            .lean();
     },
 
     deleteById(id: string) {
-        return Assignment.findByIdAndDelete(id);
+        return Assignment.findByIdAndDelete(id).lean();
     },
 };

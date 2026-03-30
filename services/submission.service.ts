@@ -35,10 +35,41 @@ function toStringId(value: unknown): string {
     return String(value);
 }
 
+function getAcceptedFileTypes(assignment: any) {
+    const policy = assignment?.submissionPolicy || {};
+    const accepted = Array.isArray(policy.acceptedFileTypes)
+        ? policy.acceptedFileTypes.map((item: string) => String(item).trim().toLowerCase())
+        : ["zip"];
+    return accepted.length ? accepted : ["zip"];
+}
+
+function getExtension(fileName: string) {
+    const cleaned = String(fileName || "").trim();
+    const parts = cleaned.split(".");
+    return parts.length > 1 ? parts.pop()!.toLowerCase() : "";
+}
+
+function buildAssignmentSnapshot(assignment: any) {
+    return {
+        assignmentId: assignment._id,
+        title: assignment.title,
+        version: Number(assignment.version || 1),
+        maxScore: Number(assignment.maxScore || 10),
+        rubric: Array.isArray(assignment.rubric) ? assignment.rubric : [],
+        submissionPolicy: assignment.submissionPolicy || {},
+        runnerConfig: assignment.runnerConfig || {},
+        aiConfig: assignment.aiConfig || {},
+    };
+}
+
 export const submissionService = {
     async createSubmission(
         payload: CreateSubmissionPayload,
-        files: SubmissionFile[],
+        input: {
+            sourceArchive: SubmissionFile | null;
+            screenshots: SubmissionFile[];
+            files: SubmissionFile[];
+        },
         currentUser: CurrentUserPayload
     ) {
         if (!currentUser?.userId) {
@@ -66,10 +97,7 @@ export const submissionService = {
             throw new Error("Giảng viên không thể nộp bài cho bài tập do mình tạo");
         }
 
-        const member = await classroomMemberRepo.findMember(
-            classroomId,
-            currentUser.userId
-        );
+        const member = await classroomMemberRepo.findMember(classroomId, currentUser.userId);
 
         if (!member || member.status !== "active") {
             throw new Error("Bạn chưa là thành viên hợp lệ của lớp này");
@@ -79,11 +107,54 @@ export const submissionService = {
             throw new Error("Chỉ sinh viên mới có thể nộp bài tập");
         }
 
-        const hasUpload = files.length > 0;
+        const submissionPolicy = assignment.submissionPolicy || {};
+        const allowGithubUrl = Boolean(submissionPolicy.allowGithubUrl);
+        const allowScreenshots = Boolean(submissionPolicy.allowScreenshots);
+        const requireZip = submissionPolicy.requireZip !== false;
+        const acceptedFileTypes = getAcceptedFileTypes(assignment);
+        const maxAttempts = Number(submissionPolicy.maxAttempts || 1);
+        const maxFileSizeBytes = Number(submissionPolicy.maxFileSizeMb || 100) * 1024 * 1024;
+
+        if (payload.repositoryUrl?.trim() && !allowGithubUrl) {
+            throw new Error("Bài tập này không cho phép nộp link repository");
+        }
+
+        if (input.screenshots.length > 0 && !allowScreenshots) {
+            throw new Error("Bài tập này không cho phép đính kèm ảnh screenshot");
+        }
+
+        if (input.sourceArchive) {
+            const extension = getExtension(input.sourceArchive.originalName);
+            if (acceptedFileTypes.length && !acceptedFileTypes.includes(extension)) {
+                throw new Error(
+                    `File bài nộp phải thuộc một trong các định dạng: ${acceptedFileTypes.join(", ")}`
+                );
+            }
+
+            if (requireZip && extension !== "zip") {
+                throw new Error("Bài tập này yêu cầu nộp source dưới dạng file .zip");
+            }
+
+            if (Number(input.sourceArchive.size || 0) > maxFileSizeBytes) {
+                throw new Error(
+                    `File bài nộp vượt quá dung lượng cho phép ${submissionPolicy.maxFileSizeMb} MB`
+                );
+            }
+        }
+
+        for (const screenshot of input.screenshots) {
+            if (Number(screenshot.size || 0) > maxFileSizeBytes) {
+                throw new Error(
+                    `Ảnh screenshot vượt quá dung lượng cho phép ${submissionPolicy.maxFileSizeMb} MB`
+                );
+            }
+        }
+
+        const hasUpload = !!input.sourceArchive;
         const hasRepository = Boolean(payload.repositoryUrl?.trim());
 
         if (payload.action === "submit" && !hasUpload && !hasRepository) {
-            throw new Error("Bạn cần tải file hoặc nhập link repository trước khi nộp");
+            throw new Error("Bạn cần tải source zip hoặc nhập link repository trước khi nộp");
         }
 
         const now = new Date();
@@ -99,6 +170,11 @@ export const submissionService = {
             currentUser.userId
         );
 
+        const latestAttemptNo = Number(latestSubmission?.attemptNo || 0);
+        if (latestAttemptNo >= maxAttempts) {
+            throw new Error(`Bạn đã dùng hết ${maxAttempts} lượt nộp cho bài tập này`);
+        }
+
         if (
             latestSubmission &&
             latestSubmission.status !== "draft" &&
@@ -108,18 +184,16 @@ export const submissionService = {
             throw new Error("Bài tập này không cho phép nộp lại");
         }
 
-        const nextAttemptNo = Number(latestSubmission?.attemptNo || 0) + 1;
-        await submissionRepository.markPreviousLatestFalse(
-            payload.assignmentId,
-            currentUser.userId
-        );
+        const nextAttemptNo = latestAttemptNo + 1;
+        await submissionRepository.markPreviousLatestFalse(payload.assignmentId, currentUser.userId);
 
-        const status =
-            payload.action === "draft"
-                ? "draft"
-                : isLate
-                    ? "late"
-                    : "submitted";
+        const status = payload.action === "draft" ? "draft" : isLate ? "late" : "submitted";
+
+        const files = [
+            ...(input.sourceArchive ? [input.sourceArchive] : []),
+            ...input.screenshots,
+            ...(Array.isArray(input.files) ? input.files : []),
+        ];
 
         const created = await submissionRepository.create({
             assignmentId: payload.assignmentId,
@@ -131,7 +205,15 @@ export const submissionService = {
             latest: true,
             repositoryUrl: payload.repositoryUrl,
             note: payload.note,
+            sourceArchive: input.sourceArchive,
+            screenshots: input.screenshots,
             files,
+            assignmentSnapshot: buildAssignmentSnapshot(assignment),
+            autoGrade: null,
+            teacherOverride: null,
+            finalScore: null,
+            gradeStatus: "pending",
+            gradeHistory: [],
             submittedAt: now,
         });
 
@@ -142,8 +224,12 @@ export const submissionService = {
             isLate: payload.action === "submit" ? isLate : false,
             repositoryUrl: payload.repositoryUrl,
             note: payload.note,
+            sourceArchive: input.sourceArchive,
+            screenshots: input.screenshots,
             files,
             submittedAt: now,
+            gradeStatus: "pending",
+            finalScore: null,
             assignment: {
                 _id: toStringId(assignment._id),
                 title: assignment.title,
@@ -151,6 +237,7 @@ export const submissionService = {
                 allowResubmit: Boolean(assignment.allowResubmit),
                 allowLateSubmit: Boolean(assignment.allowLateSubmit),
                 latePenaltyPercent: Number(assignment.latePenaltyPercent || 0),
+                submissionPolicy,
             },
         };
     },

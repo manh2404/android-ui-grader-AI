@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
     Classroom,
-    ClassroomUser,
+    ClassroomUserRef,
 } from "@/app/ui/my_classes/type/classroom.type";
 import { AddStudentDialog } from "./AddStudentDialog";
 
-type ClassroomMemberUser = ClassroomUser & {
+type ClassroomMemberUser = ClassroomUserRef & {
     role?: string;
 };
 
@@ -26,7 +26,7 @@ type ClassDetailDialogProps = {
     onStudentAdded: () => Promise<void>;
 };
 
-function getTeacherInfo(teacher: Classroom["teacherId"]): ClassroomUser | null {
+function getTeacherInfo(teacher: Classroom["teacherId"]): ClassroomUserRef | null {
     if (!teacher || typeof teacher === "string") {
         return null;
     }
@@ -44,39 +44,89 @@ export function ClassDetailDialog({
     const [loading, setLoading] = useState(false);
     const [actionId, setActionId] = useState("");
     const [error, setError] = useState("");
-    const [canManageMembers, setCanManageMembers] = useState(true);
+    const [canManageMembers, setCanManageMembers] = useState(false);
     const [members, setMembers] = useState<ClassroomMemberItem[]>([]);
     const [pendingMembers, setPendingMembers] = useState<ClassroomMemberItem[]>([]);
+    const [studentCount, setStudentCount] = useState<number | null>(null);
 
     const teacher = getTeacherInfo(classroom?.teacherId);
 
     const activeStudents = useMemo(
-        () => members.filter((item) => item.roleInClass === "student"),
+        () =>
+            members.filter(
+                (item) =>
+                    item.roleInClass === "student" && item.status === "active"
+            ),
         [members]
     );
 
-    const loadMembers = async () => {
+    const fallbackStudentCount =
+        classroom?.approvedStudentCount ??
+        classroom?.studentCount ??
+        classroom?.totalStudents ??
+        0;
+
+    const currentStudentsCount = canManageMembers
+        ? activeStudents.length
+        : studentCount ?? fallbackStudentCount;
+
+    const loadStats = useCallback(async (): Promise<boolean> => {
+        if (!classroom?._id) return false;
+
+        try {
+            const res = await fetch(`/api/classes/${classroom._id}/stats`, {
+                method: "GET",
+                cache: "no-store",
+                credentials: "include",
+            });
+
+            const result = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+                setStudentCount(fallbackStudentCount);
+                setCanManageMembers(false);
+                setMembers([]);
+                setPendingMembers([]);
+                return false;
+            }
+
+            const count = Number(result.activeStudentCount);
+            setStudentCount(Number.isFinite(count) ? count : 0);
+
+            const teacherCanManage = Boolean(result.canManageMembers);
+            setCanManageMembers(teacherCanManage);
+
+            if (!teacherCanManage) {
+                setMembers([]);
+                setPendingMembers([]);
+            }
+
+            return teacherCanManage;
+        } catch {
+            setStudentCount(fallbackStudentCount);
+            setCanManageMembers(false);
+            setMembers([]);
+            setPendingMembers([]);
+            return false;
+        }
+    }, [classroom?._id, fallbackStudentCount]);
+
+    const loadMembers = useCallback(async () => {
         if (!classroom?._id) return;
 
         try {
-            setLoading(true);
-            setError("");
-
-            const [activeRes, pendingRes] = await Promise.all([
-                fetch(`/api/classes/${classroom._id}/students?status=active`, {
+            const activeRes = await fetch(
+                `/api/classes/${classroom._id}/students?status=active`,
+                {
                     method: "GET",
                     cache: "no-store",
-                }),
-                fetch(`/api/classes/${classroom._id}/students?status=pending`, {
-                    method: "GET",
-                    cache: "no-store",
-                }),
-            ]);
+                    credentials: "include",
+                }
+            );
 
-            const activeResult = await activeRes.json();
-            const pendingResult = await pendingRes.json();
+            const activeResult = await activeRes.json().catch(() => ({}));
 
-            if (activeRes.status === 403 || pendingRes.status === 403) {
+            if (activeRes.status === 403) {
                 setCanManageMembers(false);
                 setMembers([]);
                 setPendingMembers([]);
@@ -89,6 +139,23 @@ export function ClassDetailDialog({
                 return;
             }
 
+            const pendingRes = await fetch(
+                `/api/classes/${classroom._id}/students?status=pending`,
+                {
+                    method: "GET",
+                    cache: "no-store",
+                    credentials: "include",
+                }
+            );
+
+            const pendingResult = await pendingRes.json().catch(() => ({}));
+
+            if (pendingRes.status === 403) {
+                setCanManageMembers(false);
+                setPendingMembers([]);
+                return;
+            }
+
             if (!pendingRes.ok) {
                 setError(pendingResult.message || "Không thể tải danh sách chờ duyệt");
                 setPendingMembers([]);
@@ -96,35 +163,55 @@ export function ClassDetailDialog({
             }
 
             setCanManageMembers(true);
-            setMembers(activeResult.items || []);
-            setPendingMembers(pendingResult.items || []);
+            setMembers(Array.isArray(activeResult.items) ? activeResult.items : []);
+            setPendingMembers(
+                Array.isArray(pendingResult.items) ? pendingResult.items : []
+            );
         } catch {
             setError("Có lỗi xảy ra khi tải dữ liệu lớp học");
             setMembers([]);
             setPendingMembers([]);
+            setCanManageMembers(false);
+        }
+    }, [classroom?._id]);
+
+    const refreshData = useCallback(async () => {
+        if (!classroom?._id) return;
+
+        setLoading(true);
+        setError("");
+
+        try {
+            const teacherCanManage = await loadStats();
+
+            if (teacherCanManage) {
+                await loadMembers();
+            }
         } finally {
             setLoading(false);
         }
-    };
+    }, [classroom?._id, loadMembers, loadStats]);
 
     useEffect(() => {
         if (!open || !classroom) {
             setMembers([]);
             setPendingMembers([]);
-            setCanManageMembers(true);
+            setCanManageMembers(false);
+            setStudentCount(null);
             setError("");
+            setLoading(false);
             return;
         }
 
-        void loadMembers();
-    }, [open, classroom?._id]);
+        void refreshData();
+    }, [open, classroom, refreshData]);
 
     if (!open || !classroom) {
         return null;
     }
 
     const handleStudentChanged = async () => {
-        await Promise.all([loadMembers(), onStudentAdded()]);
+        await Promise.all([refreshData(), onStudentAdded()]);
     };
 
     const handleApprove = async (studentId?: string) => {
@@ -139,10 +226,11 @@ export function ClassDetailDialog({
                 headers: {
                     "Content-Type": "application/json",
                 },
+                credentials: "include",
                 body: JSON.stringify({ action: "approve" }),
             });
 
-            const result = await res.json();
+            const result = await res.json().catch(() => ({}));
 
             if (!res.ok) {
                 setError(result.message || "Không thể duyệt sinh viên");
@@ -172,13 +260,14 @@ export function ClassDetailDialog({
                 headers: {
                     "Content-Type": "application/json",
                 },
+                credentials: "include",
                 body: JSON.stringify({
                     action: "change-role",
                     roleInClass,
                 }),
             });
 
-            const result = await res.json();
+            const result = await res.json().catch(() => ({}));
 
             if (!res.ok) {
                 setError(result.message || "Không thể cập nhật vai trò");
@@ -205,9 +294,10 @@ export function ClassDetailDialog({
 
             const res = await fetch(`/api/classes/${classroom._id}/students/${studentId}`, {
                 method: "DELETE",
+                credentials: "include",
             });
 
-            const result = await res.json();
+            const result = await res.json().catch(() => ({}));
 
             if (!res.ok) {
                 setError(result.message || "Không thể xóa thành viên khỏi lớp");
@@ -268,9 +358,9 @@ export function ClassDetailDialog({
                         </div>
 
                         <div className="rounded-2xl bg-slate-50 p-4">
-                            <p className="text-sm text-slate-500">Số sinh viên đã duyệt</p>
+                            <p className="text-sm text-slate-500">Tổng sinh viên hiện có</p>
                             <p className="mt-1 font-semibold text-slate-900">
-                                {activeStudents.length}
+                                {currentStudentsCount}
                             </p>
                         </div>
                     </div>
@@ -290,8 +380,12 @@ export function ClassDetailDialog({
                     ) : null}
 
                     {!canManageMembers ? (
-                        <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                            Bạn có thể xem thông tin lớp học, nhưng chỉ giáo viên mới quản lý được thành viên lớp.
+                        <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+                            <p className="text-sm text-slate-500">Thông tin thành viên</p>
+                            <p className="mt-1 text-sm text-slate-700">
+                                Bạn có thể xem số lượng sinh viên hiện có trong lớp. Chỉ giáo viên
+                                mới quản lý được danh sách thành viên.
+                            </p>
                         </div>
                     ) : (
                         <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -368,7 +462,10 @@ export function ClassDetailDialog({
                                                                             type="button"
                                                                             disabled={isBusy}
                                                                             onClick={() =>
-                                                                                handleChangeRole(memberId, "teacher")
+                                                                                handleChangeRole(
+                                                                                    memberId,
+                                                                                    "teacher"
+                                                                                )
                                                                             }
                                                                             className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-70"
                                                                         >
@@ -381,7 +478,10 @@ export function ClassDetailDialog({
                                                                             type="button"
                                                                             disabled={isBusy}
                                                                             onClick={() =>
-                                                                                handleChangeRole(memberId, "student")
+                                                                                handleChangeRole(
+                                                                                    memberId,
+                                                                                    "student"
+                                                                                )
                                                                             }
                                                                             className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-70"
                                                                         >
@@ -394,7 +494,9 @@ export function ClassDetailDialog({
                                                                     <button
                                                                         type="button"
                                                                         disabled={isBusy}
-                                                                        onClick={() => handleRemoveStudent(memberId)}
+                                                                        onClick={() =>
+                                                                            handleRemoveStudent(memberId)
+                                                                        }
                                                                         className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-70"
                                                                     >
                                                                         {isBusy ? "Đang xử lý..." : "Xóa"}
@@ -465,7 +567,9 @@ export function ClassDetailDialog({
                                                                 <button
                                                                     type="button"
                                                                     disabled={isBusy}
-                                                                    onClick={() => handleRemoveStudent(memberId)}
+                                                                    onClick={() =>
+                                                                        handleRemoveStudent(memberId)
+                                                                    }
                                                                     className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100 disabled:opacity-70"
                                                                 >
                                                                     {isBusy ? "Đang xử lý..." : "Từ chối"}

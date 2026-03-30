@@ -16,6 +16,36 @@ type CreateClassPayload = {
     academicYear: string;
 };
 
+type RepoUserRef = {
+    _id?: unknown;
+    name?: unknown;
+    email?: unknown;
+    studentCode?: unknown;
+    role?: unknown;
+};
+
+type RepoClassroom = {
+    _id?: unknown;
+    name?: unknown;
+    code?: unknown;
+    description?: unknown;
+    semester?: unknown;
+    academicYear?: unknown;
+    status?: unknown;
+    teacherId?: unknown;
+    studentIds?: unknown;
+    createdAt?: unknown;
+    updatedAt?: unknown;
+};
+
+type NormalizedUserRef = {
+    _id: string;
+    name: string;
+    email: string;
+    studentCode: string;
+    role: string;
+};
+
 function toStringId(value: unknown): string {
     if (!value) return "";
 
@@ -46,6 +76,61 @@ function toStringId(value: unknown): string {
     }
 
     return String(value);
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
+
+function normalizeUserRef(user: unknown): NormalizedUserRef | null {
+    if (!isObject(user)) return null;
+
+    const typedUser = user as RepoUserRef;
+
+    return {
+        _id: toStringId(typedUser._id),
+        name: typeof typedUser.name === "string" ? typedUser.name : "",
+        email: typeof typedUser.email === "string" ? typedUser.email : "",
+        studentCode:
+            typeof typedUser.studentCode === "string" ? typedUser.studentCode : "",
+        role: typeof typedUser.role === "string" ? typedUser.role : "",
+    };
+}
+
+function getApprovedStudentCount(doc: RepoClassroom): number {
+    return Array.isArray(doc.studentIds) ? doc.studentIds.length : 0;
+}
+
+function mapClassroomResponse(doc: RepoClassroom | null) {
+    if (!doc) return null;
+
+    const teacherRef = normalizeUserRef(doc.teacherId);
+
+    const students = Array.isArray(doc.studentIds)
+        ? doc.studentIds
+            .map((student) => normalizeUserRef(student))
+            .filter((student): student is NormalizedUserRef => student !== null)
+        : [];
+
+    return {
+        _id: toStringId(doc._id),
+        name: typeof doc.name === "string" ? doc.name : "",
+        code: typeof doc.code === "string" ? doc.code : "",
+        description: typeof doc.description === "string" ? doc.description : "",
+        semester:
+            doc.semester === "HK1" || doc.semester === "HK2" || doc.semester === "HK3"
+                ? doc.semester
+                : "HK1",
+        academicYear:
+            typeof doc.academicYear === "string" ? doc.academicYear : "",
+        status: typeof doc.status === "string" ? doc.status : "active",
+        teacher: teacherRef,
+        teacherId: teacherRef || toStringId(doc.teacherId),
+        studentIds: students,
+        approvedStudentCount: getApprovedStudentCount(doc),
+        createdAt: doc.createdAt ?? null,
+        updatedAt: doc.updatedAt ?? null,
+    };
 }
 
 function ensureCanManageClass(currentUser: CurrentUser, teacherId: unknown) {
@@ -87,7 +172,10 @@ export const classroomService = {
         }
 
         if (currentUser.role === "admin") {
-            return classroomRepository.findAll();
+            const docs = await classroomRepository.findAll();
+            return docs
+                .map((doc: RepoClassroom) => mapClassroomResponse(doc))
+                .filter(Boolean);
         }
 
         if (currentUser.role === "teacher") {
@@ -103,7 +191,12 @@ export const classroomService = {
                 ? await classroomRepository.findAllByIds(supportedClassIds)
                 : [];
 
-            return mergeUniqueById(ownedClasses, supportedClasses);
+            return mergeUniqueById<RepoClassroom>(
+                ownedClasses,
+                supportedClasses
+            )
+                .map((doc) => mapClassroomResponse(doc))
+                .filter(Boolean);
         }
 
         const joinedClassIds = await classroomMemberRepo.findClassroomIdsByUserId(
@@ -117,7 +210,10 @@ export const classroomService = {
             return [];
         }
 
-        return classroomRepository.findAllByIds(joinedClassIds);
+        const docs = await classroomRepository.findAllByIds(joinedClassIds);
+        return docs
+            .map((doc: RepoClassroom) => mapClassroomResponse(doc))
+            .filter(Boolean);
     },
 
     async getClassById(id: string) {
@@ -127,7 +223,7 @@ export const classroomService = {
             throw new Error("Không tìm thấy lớp học");
         }
 
-        return classroom;
+        return mapClassroomResponse(classroom);
     },
 
     async createClass(data: CreateClassPayload, currentUser: CurrentUser) {
@@ -146,7 +242,7 @@ export const classroomService = {
             throw new Error("Mã lớp đã tồn tại");
         }
 
-        return classroomRepository.create({
+        const created = await classroomRepository.create({
             name: data.name.trim(),
             code: normalizedCode,
             description: data.description?.trim() || "",
@@ -155,6 +251,16 @@ export const classroomService = {
             teacherId: currentUser.userId,
             status: "active",
         });
+
+        const reloaded = await classroomRepository.findById(
+            toStringId((created as { _id?: unknown })?._id)
+        );
+
+        if (!reloaded) {
+            throw new Error("Tạo lớp học thất bại");
+        }
+
+        return mapClassroomResponse(reloaded);
     },
 
     async updateClass(
@@ -172,7 +278,7 @@ export const classroomService = {
             throw new Error("Không tìm thấy lớp học");
         }
 
-        ensureCanManageClass(currentUser, existing.teacherId);
+        ensureCanManageClass(currentUser, (existing as RepoClassroom).teacherId);
 
         const nextData: Record<string, unknown> = { ...data };
 
@@ -180,7 +286,7 @@ export const classroomService = {
             const normalizedCode = nextData.code.trim().toUpperCase();
             const duplicate = await classroomRepository.findByCode(normalizedCode);
 
-            if (duplicate && String(duplicate._id) !== String(existing._id)) {
+            if (duplicate && String((duplicate as RepoClassroom)._id) !== String((existing as RepoClassroom)._id)) {
                 throw new Error("Mã lớp đã tồn tại");
             }
 
@@ -205,7 +311,7 @@ export const classroomService = {
             throw new Error("Cập nhật lớp học thất bại");
         }
 
-        return updated;
+        return mapClassroomResponse(updated);
     },
 
     async deleteClass(id: string, currentUser: CurrentUser) {
@@ -219,7 +325,7 @@ export const classroomService = {
             throw new Error("Không tìm thấy lớp học");
         }
 
-        ensureCanManageClass(currentUser, existing.teacherId);
+        ensureCanManageClass(currentUser, (existing as RepoClassroom).teacherId);
 
         await Promise.all([
             classroomRepository.deleteById(id),
