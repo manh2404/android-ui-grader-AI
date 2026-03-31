@@ -41,10 +41,20 @@ export const submissionRepository = {
             .sort({ submittedAt: -1 });
     },
 
+    findByAssignmentAndStudent(assignmentId: string, studentId: string) {
+        return Submission.find({
+            assignmentId,
+            studentId,
+        })
+            .populate("studentId", "name email studentCode")
+            .sort({ submittedAt: -1, attemptNo: -1 })
+            .lean();
+    },
+
     async countByAssignment(assignmentId: string): Promise<number> {
         return Submission.countDocuments({
             assignmentId,
-            status: {$in: ["submitted", "graded", "late"]},
+            status: { $in: ["submitted", "graded", "late"] },
         });
     },
 };

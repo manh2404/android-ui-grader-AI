@@ -2,9 +2,12 @@ import Submission from "@/models/Submission.model";
 import { submissionController } from "@/controllers/submission.controller";
 import { errorResponse, successResponse } from "@/lib/api-response";
 import { getCurrentUserFromRequest } from "@/lib/current-user";
+import { connectDB } from "@/lib/mongodb";
 
 export async function GET(request: Request) {
     try {
+        await connectDB();
+
         const currentUser = getCurrentUserFromRequest(request);
 
         if (!currentUser?.userId) {
@@ -48,5 +51,6 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+    await connectDB();
     return submissionController.create(request);
 }

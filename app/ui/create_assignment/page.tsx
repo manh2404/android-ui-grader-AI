@@ -205,11 +205,37 @@ export default function CreateAssignmentPage() {
             setSuccess("");
 
             const body = new FormData();
+            const parsedMaxScore = Number(form.maxScore || "10");
+
+            const rubric = [
+                {
+                    code: "overall",
+                    title: "Chấm tổng thể",
+                    description: form.rubricText.trim() || "Chấm tổng thể theo yêu cầu bài tập",
+                    maxPoints: Number.isFinite(parsedMaxScore) && parsedMaxScore > 0 ? parsedMaxScore : 10,
+                    gradingSource: "manual",
+                    requiredEvidence: [],
+                    passThreshold: null,
+                    notes: "",
+                },
+            ];
+
+            const submissionPolicy = {
+                acceptedFileTypes: ["zip"],
+                maxFileSizeMb: 100,
+                maxAttempts: form.allowResubmit ? 999999 : 1,
+                requireZip: true,
+                allowGithubUrl: true,
+                allowScreenshots: true,
+            };
+
             body.set("title", form.title);
             body.set("classroomId", form.classroomId);
             body.set("language", form.language);
             body.set("description", form.description);
             body.set("rubricText", form.rubricText);
+            body.set("rubric", JSON.stringify(rubric));
+            body.set("submissionPolicy", JSON.stringify(submissionPolicy));
             body.set("startAt", new Date(form.startAt).toISOString());
             body.set("dueAt", new Date(form.dueAt).toISOString());
             body.set("allowLateSubmit", String(form.allowLateSubmit));

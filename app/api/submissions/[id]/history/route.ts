@@ -1,6 +1,7 @@
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { getActorIdFromRequest } from "@/lib/current-user";
 import { gradingService } from "@/services/grading.service";
+import { connectDB } from "@/lib/mongodb";
 
 type RouteContext = {
     params: Promise<{
@@ -21,11 +22,10 @@ async function resolveId(context: RouteContext): Promise<string> {
     return id;
 }
 
-export async function GET(
-    request: Request,
-    context: RouteContext
-) {
+export async function GET(request: Request, context: RouteContext) {
     try {
+        await connectDB();
+
         getActorIdFromRequest(request);
 
         const id = await resolveId(context);

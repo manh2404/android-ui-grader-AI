@@ -19,6 +19,7 @@ export function AppHeader({ children }: { children: ReactNode }) {
     const [mobileOpen, setMobileOpen] = useState(false);
     const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
     const pathname = usePathname();
+    const isGradingDetailPage = pathname?.startsWith("/ui/grading_detail");
 
     useEffect(() => {
         const loadMe = async () => {

@@ -112,7 +112,12 @@ export const submissionService = {
         const allowScreenshots = Boolean(submissionPolicy.allowScreenshots);
         const requireZip = submissionPolicy.requireZip !== false;
         const acceptedFileTypes = getAcceptedFileTypes(assignment);
-        const maxAttempts = Number(submissionPolicy.maxAttempts || 1);
+        const rawMaxAttempts = Number(submissionPolicy.maxAttempts || 1);
+        const maxAttempts = assignment.allowResubmit
+            ? rawMaxAttempts > 1
+                ? rawMaxAttempts
+                : Number.MAX_SAFE_INTEGER
+            : rawMaxAttempts;
         const maxFileSizeBytes = Number(submissionPolicy.maxFileSizeMb || 100) * 1024 * 1024;
 
         if (payload.repositoryUrl?.trim() && !allowGithubUrl) {
@@ -172,7 +177,11 @@ export const submissionService = {
 
         const latestAttemptNo = Number(latestSubmission?.attemptNo || 0);
         if (latestAttemptNo >= maxAttempts) {
-            throw new Error(`Bạn đã dùng hết ${maxAttempts} lượt nộp cho bài tập này`);
+            throw new Error(
+                maxAttempts === Number.MAX_SAFE_INTEGER
+                    ? "Bạn không thể nộp thêm cho bài tập này"
+                    : `Bạn đã dùng hết ${maxAttempts} lượt nộp cho bài tập này`
+            );
         }
 
         if (

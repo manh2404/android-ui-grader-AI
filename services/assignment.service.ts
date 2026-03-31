@@ -1,6 +1,8 @@
 import { assignmentRepository } from "@/repositories/assignment.repository";
 import { classroomRepository } from "@/repositories/classroom.repository";
 import * as classroomMemberRepo from "@/repositories/classroom-member.repository";
+import { submissionRepository } from "@/repositories/submission.repository";
+
 import type {
     CreateAssignmentPayload,
     UpdateAssignmentPayload,
@@ -66,6 +68,61 @@ type AssignmentLike = {
     version?: unknown;
     latestSubmission?: unknown;
 };
+function normalizeLatestSubmissionDetail(value: unknown) {
+    if (!isObject(value)) {
+        return null;
+    }
+
+    const item = value as Record<string, unknown>;
+
+    const files = Array.isArray(item.files)
+        ? item.files.map((file) => {
+            const raw = toObject(file);
+            return {
+                url: toText(raw.url),
+                originalName: toText(raw.originalName),
+            };
+        })
+        : [];
+
+    return {
+        _id: toStringId(item._id),
+        attemptNo: toNumberValue(item.attemptNo, 1),
+        status: toText(item.status, "submitted"),
+        submittedAt: item.submittedAt ? String(item.submittedAt) : undefined,
+        repositoryUrl: toText(item.repositoryUrl),
+        note: toText(item.note),
+        files,
+    };
+}
+
+async function attachLatestSubmissionForStudent(assignments: ReturnType<typeof mapAssignmentResponse>[], studentId: string) {
+    if (!assignments.length) return assignments;
+
+    const assignmentIds = assignments.map((item) => item._id).filter(Boolean);
+    if (!assignmentIds.length) return assignments;
+
+    const latestDocs = await submissionRepository.findLatestMapForStudent(
+        assignmentIds,
+        studentId
+    );
+
+    const latestMap = new Map<string, unknown>();
+
+    for (const doc of latestDocs) {
+        const raw = toObject(doc);
+        const assignmentId = toStringId(
+            isObject(raw.assignmentId) ? raw.assignmentId._id : raw.assignmentId
+        );
+        if (!assignmentId || latestMap.has(assignmentId)) continue;
+        latestMap.set(assignmentId, doc);
+    }
+
+    return assignments.map((item) => ({
+        ...item,
+        latestSubmission: normalizeLatestSubmissionDetail(latestMap.get(item._id)),
+    }));
+}
 
 function isObject(value: unknown): value is UnknownRecord {
     return typeof value === "object" && value !== null;
@@ -350,7 +407,8 @@ export const assignmentService = {
             { includeDraft: false }
         );
 
-        return docs.map(mapAssignmentResponse);
+        const mapped = docs.map(mapAssignmentResponse);
+        return attachLatestSubmissionForStudent(mapped, currentUser.userId);
     },
 
     async createAssignment(
