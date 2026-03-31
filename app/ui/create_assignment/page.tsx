@@ -39,7 +39,7 @@ type FormState = {
 };
 
 const LANGUAGES = [
-    { value: "cpp", label: "C++ (G++ 11)" },
+    { value: "kotlin", label: "kotlin" },
     { value: "java", label: "Java 17" },
     { value: "python", label: "Python 3.10" },
     { value: "javascript", label: "JavaScript (Node.js)" },
@@ -131,7 +131,7 @@ export default function CreateAssignmentPage() {
     const [form, setForm] = useState<FormState>({
         title: "",
         classroomId: "",
-        language: "cpp",
+        language: "kotlin   ",
         description: "",
         rubricText: "",
         startAt: defaultStartAt,
