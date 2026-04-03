@@ -38,7 +38,7 @@ export function AppHeader({ children }: { children: ReactNode }) {
         const role = currentUser?.role;
 
         return navItems.filter((item) => {
-            if (item.href === "/ui/create_assignment") {
+            if (item.href === "/ui/create_assignment" || item.href === "/ui/server_config" || item.href === "/ui/grading_detail") {
                 return role === "teacher" || role === "admin";
             }
             return true;

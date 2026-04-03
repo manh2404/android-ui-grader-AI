@@ -24,7 +24,7 @@ export function AppSidebar({
 
     const visibleNavItems = useMemo(() => {
         return navItems.filter((item) => {
-            if (item.href === "/ui/create_assignment") {
+            if (item.href === "/ui/create_assignment" || item.href === "/ui/server_config" || item.href === "/ui/grading_detail") {
                 return currentUserRole === "teacher" || currentUserRole === "admin";
             }
             return true;

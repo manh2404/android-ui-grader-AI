@@ -2,6 +2,7 @@ import { assignmentRepository } from "@/repositories/assignment.repository";
 import { classroomRepository } from "@/repositories/classroom.repository";
 import * as classroomMemberRepo from "@/repositories/classroom-member.repository";
 import { submissionRepository } from "@/repositories/submission.repository";
+import { assignmentNotificationService } from "@/services/assignment-notification.service";
 
 import type {
     CreateAssignmentPayload,
@@ -433,6 +434,14 @@ export const assignmentService = {
             throw new Error("Không thể tạo bài tập");
         }
 
+        if (toText(toObject(reloaded).status, "published") === "published") {
+            try {
+                await assignmentNotificationService.sendNewAssignmentEmails(createdId);
+            } catch (error) {
+                console.error("[assignment-notification:create]", error);
+            }
+        }
+
         return mapAssignmentResponse(reloaded);
     },
 
@@ -493,6 +502,17 @@ export const assignmentService = {
 
         if (!updated) {
             throw new Error("Không thể cập nhật bài tập");
+        }
+
+        const previousStatus = toText(currentObject.status, "published");
+        const nextStatus = toText(toObject(updated).status, "published");
+
+        if (previousStatus !== "published" && nextStatus === "published") {
+            try {
+                await assignmentNotificationService.sendNewAssignmentEmails(id);
+            } catch (error) {
+                console.error("[assignment-notification:update]", error);
+            }
         }
 
         return {

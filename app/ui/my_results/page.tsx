@@ -378,16 +378,16 @@ export default function MyResultsPage() {
 
     return (
         <div className="space-y-6">
-            <div className="rounded-[28px] border border-slate-200 bg-white p-8 shadow-sm">
+            <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
                 <div className="grid gap-6 lg:grid-cols-[1.6fr_0.9fr] lg:items-center">
                     <div>
-                        <p className="mb-3 text-sm font-bold uppercase tracking-[0.15em] text-orange-500">
+                        <p className="text-sm font-semibold uppercase tracking-[0.1em] text-orange-500">
                             Kết quả học tập
                         </p>
 
-                        <h6 className="max-w-3xl text-3xl font-extrabold leading-tight tracking-tight text-slate-950 md:text-5xl">
+                        <h1 className="mt-3 max-w-3xl text-3xl font-extrabold leading-tight text-slate-950 md:text-4xl">
                             Điểm số và nhận xét bài tập của bạn
-                        </h6>
+                        </h1>
                     </div>
 
                     <div className="rounded-[24px] border border-orange-100 bg-gradient-to-br from-orange-50 to-amber-50 p-6 shadow-sm">
