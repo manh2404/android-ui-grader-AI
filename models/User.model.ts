@@ -1,17 +1,43 @@
 import mongoose, { Document, Model, Schema } from "mongoose";
 
+export type UserRole = "teacher" | "admin" | "User";
+
+export interface IUserNotificationSettings {
+    emailAssignments: boolean;
+    pushReminders: boolean;
+}
+
 export interface IUser extends Document {
     name: string;
     email: string;
     password: string;
     studentCode?: string;
-    role: "teacher" | "admin" | "User";
+    role: UserRole;
     isVerified: boolean;
     avatar?: string;
+    phone?: string;
+    department?: string;
+    cohort?: string;
+    bio?: string;
+    notificationSettings: IUserNotificationSettings;
     lastLoginAt?: Date;
     createdAt: Date;
     updatedAt: Date;
 }
+
+const NotificationSettingsSchema = new Schema<IUserNotificationSettings>(
+    {
+        emailAssignments: {
+            type: Boolean,
+            default: true,
+        },
+        pushReminders: {
+            type: Boolean,
+            default: false,
+        },
+    },
+    { _id: false }
+);
 
 const UserSchema = new Schema<IUser>(
     {
@@ -54,6 +80,35 @@ const UserSchema = new Schema<IUser>(
         avatar: {
             type: String,
             default: "",
+            trim: true,
+        },
+        phone: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        department: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        cohort: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        bio: {
+            type: String,
+            default: "",
+            trim: true,
+            maxlength: [300, "Giới thiệu không được vượt quá 300 ký tự"],
+        },
+        notificationSettings: {
+            type: NotificationSettingsSchema,
+            default: () => ({
+                emailAssignments: true,
+                pushReminders: false,
+            }),
         },
         lastLoginAt: {
             type: Date,

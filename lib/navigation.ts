@@ -6,6 +6,7 @@ export const navItems = [
     { label: "Báo cáo", href: "/ui/learning_reports", icon: "assessment" },
     { label: "Cấu hình", href: "/ui/server_config", icon: "settings" },
     { label: "Nộp bài", href: "/ui/submit_assignment", icon: "upload_file" },
+    {label: "kết quả học tập", href: "/ui/my_results", icon: "school" },
     { label: "Chấm bài", href: "/ui/grading_detail", icon: "grading" },
     { label: "Tài khoản", href: "/ui/account", icon: "person" },
 ];
