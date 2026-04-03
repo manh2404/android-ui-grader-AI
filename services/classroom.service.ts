@@ -97,11 +97,10 @@ function normalizeUserRef(user: unknown): NormalizedUserRef | null {
     };
 }
 
-function getApprovedStudentCount(doc: RepoClassroom): number {
-    return Array.isArray(doc.studentIds) ? doc.studentIds.length : 0;
-}
-
-function mapClassroomResponse(doc: RepoClassroom | null) {
+function mapClassroomResponse(
+    doc: RepoClassroom | null,
+    studentCountMap?: Record<string, number>
+) {
     if (!doc) return null;
 
     const teacherRef = normalizeUserRef(doc.teacherId);
@@ -112,8 +111,10 @@ function mapClassroomResponse(doc: RepoClassroom | null) {
             .filter((student): student is NormalizedUserRef => student !== null)
         : [];
 
+    const classId = toStringId(doc._id);
+
     return {
-        _id: toStringId(doc._id),
+        _id: classId,
         name: typeof doc.name === "string" ? doc.name : "",
         code: typeof doc.code === "string" ? doc.code : "",
         description: typeof doc.description === "string" ? doc.description : "",
@@ -127,7 +128,10 @@ function mapClassroomResponse(doc: RepoClassroom | null) {
         teacher: teacherRef,
         teacherId: teacherRef || toStringId(doc.teacherId),
         studentIds: students,
-        approvedStudentCount: getApprovedStudentCount(doc),
+        approvedStudentCount:
+            typeof studentCountMap?.[classId] === "number"
+                ? studentCountMap[classId]
+                : students.length,
         createdAt: doc.createdAt ?? null,
         updatedAt: doc.updatedAt ?? null,
     };
@@ -165,6 +169,20 @@ function mergeUniqueById<T extends { _id?: unknown; createdAt?: unknown }>(
     });
 }
 
+async function attachStudentCount(docs: RepoClassroom[]) {
+    const classroomIds = docs
+        .map((doc) => toStringId(doc._id))
+        .filter(Boolean);
+
+    const countMap = classroomIds.length
+        ? await classroomMemberRepo.countActiveStudentsByClassroomIds(classroomIds)
+        : {};
+
+    return docs
+        .map((doc) => mapClassroomResponse(doc, countMap))
+        .filter(Boolean);
+}
+
 export const classroomService = {
     async getAllClasses(currentUser: CurrentUser) {
         if (!currentUser) {
@@ -173,9 +191,7 @@ export const classroomService = {
 
         if (currentUser.role === "admin") {
             const docs = await classroomRepository.findAll();
-            return docs
-                .map((doc: RepoClassroom) => mapClassroomResponse(doc))
-                .filter(Boolean);
+            return attachStudentCount(docs as RepoClassroom[]);
         }
 
         if (currentUser.role === "teacher") {
@@ -191,12 +207,12 @@ export const classroomService = {
                 ? await classroomRepository.findAllByIds(supportedClassIds)
                 : [];
 
-            return mergeUniqueById<RepoClassroom>(
-                ownedClasses,
-                supportedClasses
-            )
-                .map((doc) => mapClassroomResponse(doc))
-                .filter(Boolean);
+            const docs = mergeUniqueById<RepoClassroom>(
+                ownedClasses as RepoClassroom[],
+                supportedClasses as RepoClassroom[]
+            );
+
+            return attachStudentCount(docs);
         }
 
         const joinedClassIds = await classroomMemberRepo.findClassroomIdsByUserId(
@@ -211,9 +227,7 @@ export const classroomService = {
         }
 
         const docs = await classroomRepository.findAllByIds(joinedClassIds);
-        return docs
-            .map((doc: RepoClassroom) => mapClassroomResponse(doc))
-            .filter(Boolean);
+        return attachStudentCount(docs as RepoClassroom[]);
     },
 
     async getClassById(id: string) {
@@ -223,7 +237,8 @@ export const classroomService = {
             throw new Error("Không tìm thấy lớp học");
         }
 
-        return mapClassroomResponse(classroom);
+        const count = await classroomMemberRepo.countActiveStudentsByClassroomId(id);
+        return mapClassroomResponse(classroom as RepoClassroom, { [id]: count });
     },
 
     async createClass(data: CreateClassPayload, currentUser: CurrentUser) {
@@ -260,78 +275,62 @@ export const classroomService = {
             throw new Error("Tạo lớp học thất bại");
         }
 
-        return mapClassroomResponse(reloaded);
+        return mapClassroomResponse(reloaded as RepoClassroom, {
+            [toStringId((reloaded as { _id?: unknown })?._id)]: 0,
+        });
     },
 
     async updateClass(
         id: string,
-        data: Record<string, unknown>,
+        data: Partial<CreateClassPayload>,
         currentUser: CurrentUser
     ) {
-        if (!currentUser) {
-            throw new Error("Bạn chưa đăng nhập");
-        }
+        const classroom = await classroomRepository.findById(id);
 
-        const existing = await classroomRepository.findById(id);
-
-        if (!existing) {
+        if (!classroom) {
             throw new Error("Không tìm thấy lớp học");
         }
 
-        ensureCanManageClass(currentUser, (existing as RepoClassroom).teacherId);
+        ensureCanManageClass(currentUser, (classroom as RepoClassroom).teacherId);
 
-        const nextData: Record<string, unknown> = { ...data };
+        const payload: Record<string, unknown> = {};
 
-        if (typeof nextData.code === "string") {
-            const normalizedCode = nextData.code.trim().toUpperCase();
-            const duplicate = await classroomRepository.findByCode(normalizedCode);
+        if (typeof data.name === "string") payload.name = data.name.trim();
+        if (typeof data.description === "string") payload.description = data.description.trim();
+        if (typeof data.semester === "string") payload.semester = data.semester;
+        if (typeof data.academicYear === "string") payload.academicYear = data.academicYear.trim();
 
-            if (duplicate && String((duplicate as RepoClassroom)._id) !== String((existing as RepoClassroom)._id)) {
+        if (typeof data.code === "string" && data.code.trim()) {
+            const normalizedCode = data.code.trim().toUpperCase();
+            const existing = await classroomRepository.findByCode(normalizedCode);
+
+            if (existing && toStringId((existing as { _id?: unknown })._id) !== id) {
                 throw new Error("Mã lớp đã tồn tại");
             }
 
-            nextData.code = normalizedCode;
+            payload.code = normalizedCode;
         }
 
-        if (typeof nextData.name === "string") {
-            nextData.name = nextData.name.trim();
-        }
-
-        if (typeof nextData.description === "string") {
-            nextData.description = nextData.description.trim();
-        }
-
-        if (typeof nextData.academicYear === "string") {
-            nextData.academicYear = nextData.academicYear.trim();
-        }
-
-        const updated = await classroomRepository.updateById(id, nextData);
+        const updated = await classroomRepository.updateById(id, payload);
 
         if (!updated) {
-            throw new Error("Cập nhật lớp học thất bại");
+            throw new Error("Không thể cập nhật lớp học");
         }
 
-        return mapClassroomResponse(updated);
+        const count = await classroomMemberRepo.countActiveStudentsByClassroomId(id);
+        return mapClassroomResponse(updated as RepoClassroom, { [id]: count });
     },
 
     async deleteClass(id: string, currentUser: CurrentUser) {
-        if (!currentUser) {
-            throw new Error("Bạn chưa đăng nhập");
-        }
+        const classroom = await classroomRepository.findById(id);
 
-        const existing = await classroomRepository.findById(id);
-
-        if (!existing) {
+        if (!classroom) {
             throw new Error("Không tìm thấy lớp học");
         }
 
-        ensureCanManageClass(currentUser, (existing as RepoClassroom).teacherId);
+        ensureCanManageClass(currentUser, (classroom as RepoClassroom).teacherId);
 
-        await Promise.all([
-            classroomRepository.deleteById(id),
-            classroomMemberRepo.deleteManyByClassroomId(id),
-        ]);
-
-        return true;
+        await classroomMemberRepo.deleteManyByClassroomId(id);
+        await classroomRepository.deleteById(id);
     },
 };

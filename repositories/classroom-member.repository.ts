@@ -5,6 +5,7 @@ import {
 } from "@/models/Classroom-member.model";
 import ClassroomModel from "@/models/Classroom.model";
 import UserModel from "@/models/User.model";
+import {Types} from "mongoose";
 
 function escapeRegex(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -191,4 +192,49 @@ export async function removeMember(classroomId: string, userId: string) {
 
 export async function deleteManyByClassroomId(classroomId: string) {
     return ClassroomMemberModel.deleteMany({ classroomId });
+}
+
+
+// hiển thị số sinh viên trong accont
+export async function countActiveStudentsByClassroomId(classroomId: string) {
+    const normalizedId = Types.ObjectId.isValid(classroomId)
+        ? new Types.ObjectId(classroomId)
+        : classroomId;
+
+    return ClassroomMemberModel.countDocuments({
+        classroomId: normalizedId,
+        status: "active",
+        roleInClass: "student",
+    });
+}
+
+export async function countActiveStudentsByClassroomIds(classroomIds: string[]) {
+    const objectIds = classroomIds
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id));
+
+    if (!objectIds.length) {
+        return {};
+    }
+
+    const rows = await ClassroomMemberModel.aggregate([
+        {
+            $match: {
+                classroomId: { $in: objectIds },
+                status: "active",
+                roleInClass: "student",
+            },
+        },
+        {
+            $group: {
+                _id: "$classroomId",
+                count: { $sum: 1 },
+            },
+        },
+    ]);
+
+    return rows.reduce<Record<string, number>>((acc, row) => {
+        acc[String(row._id)] = Number(row.count || 0);
+        return acc;
+    }, {});
 }
