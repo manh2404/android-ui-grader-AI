@@ -42,6 +42,21 @@ const AssignmentSnapshotSchema = new Schema(
             required: true,
             trim: true,
         },
+        description: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        rubricText: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        language: {
+            type: String,
+            default: "kotlin",
+            trim: true,
+        },
         version: {
             type: Number,
             default: 1,
@@ -52,6 +67,10 @@ const AssignmentSnapshotSchema = new Schema(
             min: 0,
         },
         rubric: {
+            type: [Schema.Types.Mixed],
+            default: [],
+        },
+        attachments: {
             type: [Schema.Types.Mixed],
             default: [],
         },

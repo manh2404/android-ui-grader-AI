@@ -4,10 +4,12 @@ import type {
     RubricCriterion,
     RunnerReportInput,
 } from "@/lib/grading-contract";
+import type { GeminiInlinePart } from "@/services/grading-context.service";
 
 type GenerateAiFeedbackInput = {
     assignmentTitle: string;
-    submissionSummary: string;
+    gradingContextText: string;
+    multimodalParts?: GeminiInlinePart[];
     rubric: RubricCriterion[];
     runnerReport?: RunnerReportInput | null;
     model?: string;
@@ -99,16 +101,27 @@ export async function generateAiFeedback(
         const ai = new GoogleGenAI({ apiKey });
 
         const prompt = `
-Bạn là AI phản hồi cho hệ thống chấm bài Android UI bằng Compose/Kotlin.
+Bạn là AI chấm bài cho hệ thống AutoGrade.
 
-YÊU CẦU:
-- Trả về DUY NHẤT JSON hợp lệ.
-- Không dùng markdown.
+MỤC TIÊU:
+- Chấm bài sinh viên dựa trên:
+  1) mô tả đề bài
+  2) rubric ngắn
+  3) file rubric chi tiết
+  4) file đề bài / ảnh / pdf giáo viên upload
+  5) template / starter code / test case giáo viên upload
+  6) file zip bài nộp của sinh viên
+  7) ảnh screenshot do sinh viên nộp (nếu có)
+- So sánh bài sinh viên với yêu cầu và rubric.
 - Chỉ chấm các tiêu chí có gradingSource là "ai" hoặc "hybrid".
 - awardedPoints phải nằm trong [0, maxPoints].
 - confidence trong [0,1].
-- Nếu thiếu bằng chứng, hạ confidence và nói rõ thiếu gì.
+- Nếu không đủ bằng chứng thì KHÔNG cho full điểm.
+- Luôn nêu evidence cụ thể theo tên file, class, hàm, hoặc thành phần UI quan sát được.
+- Không bịa file không tồn tại.
 - Ngôn ngữ phản hồi: ${input.language || "vi"}.
+- Trả về DUY NHẤT JSON hợp lệ.
+- Không dùng markdown.
 
 CẤU TRÚC JSON:
 {
@@ -135,23 +148,33 @@ CẤU TRÚC JSON:
     }
   ]
 }
+        `.trim();
 
-BÀI TẬP:
-${input.assignmentTitle}
-
-RUBRIC:
-${JSON.stringify(input.rubric, null, 2)}
-
-RUNNER REPORT:
-${JSON.stringify(input.runnerReport || null, null, 2)}
-
-SUBMISSION SUMMARY:
-${input.submissionSummary}
-`.trim();
+        const parts: any[] = [
+            { text: prompt },
+            {
+                text: `ASSIGNMENT TITLE:\n${input.assignmentTitle}`,
+            },
+            {
+                text: `RUBRIC JSON:\n${JSON.stringify(input.rubric, null, 2)}`,
+            },
+            {
+                text: `RUNNER REPORT:\n${JSON.stringify(input.runnerReport || null, null, 2)}`,
+            },
+            ...(input.multimodalParts || []),
+            {
+                text: `GRADING CONTEXT:\n${input.gradingContextText}`,
+            },
+        ];
 
         const response = await ai.models.generateContent({
             model: input.model || process.env.GEMINI_MODEL || "gemini-2.5-flash",
-            contents: prompt,
+            contents: [
+                {
+                    role: "user",
+                    parts,
+                },
+            ],
             config: {
                 temperature: 0.2,
             },

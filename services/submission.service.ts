@@ -53,9 +53,13 @@ function buildAssignmentSnapshot(assignment: any) {
     return {
         assignmentId: assignment._id,
         title: assignment.title,
+        description: assignment.description || "",
+        rubricText: assignment.rubricText || "",
+        language: assignment.language || "kotlin",
         version: Number(assignment.version || 1),
         maxScore: Number(assignment.maxScore || 10),
         rubric: Array.isArray(assignment.rubric) ? assignment.rubric : [],
+        attachments: Array.isArray(assignment.attachments) ? assignment.attachments : [],
         submissionPolicy: assignment.submissionPolicy || {},
         runnerConfig: assignment.runnerConfig || {},
         aiConfig: assignment.aiConfig || {},

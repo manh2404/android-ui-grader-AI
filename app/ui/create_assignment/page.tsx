@@ -37,6 +37,16 @@ type FormState = {
     latePenaltyPercent: string;
     maxScore: string;
 };
+type RubricCriterion = {
+    code: string;
+    title: string;
+    description: string;
+    maxPoints: number;
+    gradingSource: "runner" | "ai" | "hybrid" | "manual";
+    requiredEvidence: string[];
+    passThreshold: number | null;
+    notes: string;
+};
 
 const LANGUAGES = [
     { value: "kotlin", label: "kotlin" },
@@ -111,6 +121,170 @@ function FileListCard({
     );
 }
 
+function slugifyCriterionCode(value: string) {
+    return value
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") || "criterion";
+}
+
+function inferGradingSource(text: string): RubricCriterion["gradingSource"] {
+    const normalized = text.toLowerCase();
+
+    if (
+        /(build|test|runner|required file|readme|cấu trúc|structure|gradle|manifest)/i.test(
+            normalized
+        )
+    ) {
+        return "hybrid";
+    }
+
+    return "ai";
+}
+
+function normalizeRubricCriterion(
+    item: any,
+    index: number
+): RubricCriterion {
+    const title = String(item?.title || item?.name || `Tiêu chí ${index + 1}`).trim();
+    const description = String(item?.description || title).trim();
+    const maxPoints = Number(item?.maxPoints || item?.points || 0);
+
+    return {
+        code: String(item?.code || slugifyCriterionCode(title)),
+        title,
+        description,
+        maxPoints: Number.isFinite(maxPoints) && maxPoints > 0 ? maxPoints : 1,
+        gradingSource:
+            item?.gradingSource === "runner" ||
+            item?.gradingSource === "ai" ||
+            item?.gradingSource === "hybrid" ||
+            item?.gradingSource === "manual"
+                ? item.gradingSource
+                : inferGradingSource(`${title} ${description}`),
+        requiredEvidence: Array.isArray(item?.requiredEvidence)
+            ? item.requiredEvidence.map(String)
+            : [],
+        passThreshold:
+            item?.passThreshold === null || item?.passThreshold === undefined
+                ? null
+                : Number(item.passThreshold),
+        notes: String(item?.notes || ""),
+    };
+}
+
+function rebalanceRubricPoints(
+    rubric: RubricCriterion[],
+    expectedMaxScore: number
+) {
+    if (!rubric.length) return rubric;
+
+    const total = rubric.reduce((sum, item) => sum + Number(item.maxPoints || 0), 0);
+    if (!Number.isFinite(total) || total <= 0) return rubric;
+
+    if (Math.abs(total - expectedMaxScore) < 0.001) {
+        return rubric;
+    }
+
+    const factor = expectedMaxScore / total;
+    const scaled = rubric.map((item) => ({
+        ...item,
+        maxPoints: Number((item.maxPoints * factor).toFixed(2)),
+    }));
+
+    const scaledTotal = scaled.reduce((sum, item) => sum + item.maxPoints, 0);
+    const delta = Number((expectedMaxScore - scaledTotal).toFixed(2));
+    scaled[scaled.length - 1].maxPoints = Number(
+        (scaled[scaled.length - 1].maxPoints + delta).toFixed(2)
+    );
+
+    return scaled;
+}
+
+function parseRubricTextToCriteria(
+    rubricText: string,
+    maxScore: number
+): RubricCriterion[] {
+    const rawLines = rubricText
+        .split(/\n|;/g)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    if (!rawLines.length) {
+        return [
+            {
+                code: "overall",
+                title: "Chấm tổng thể",
+                description: "Chấm tổng thể theo yêu cầu bài tập, file đề bài và starter code.",
+                maxPoints: maxScore,
+                gradingSource: "ai",
+                requiredEvidence: [],
+                passThreshold: null,
+                notes: "",
+            },
+        ];
+    }
+
+    const criteria = rawLines.map((line, index) => {
+        const match = line.match(/(\d+(?:[.,]\d+)?)\s*(điểm|đ|pts|point|points)?/i);
+        const parsedPoint = match ? Number(String(match[1]).replace(",", ".")) : null;
+
+        const cleanedTitle = line
+            .replace(/(\d+(?:[.,]\d+)?)\s*(điểm|đ|pts|point|points)?/i, "")
+            .replace(/^[-:–•\s]+/, "")
+            .replace(/[-:–•\s]+$/, "")
+            .trim();
+
+        const title = cleanedTitle || `Tiêu chí ${index + 1}`;
+
+        return {
+            code: slugifyCriterionCode(title),
+            title,
+            description: line,
+            maxPoints: parsedPoint && parsedPoint > 0 ? parsedPoint : 1,
+            gradingSource: inferGradingSource(line),
+            requiredEvidence: [],
+            passThreshold: null,
+            notes: "",
+        } satisfies RubricCriterion;
+    });
+
+    return rebalanceRubricPoints(criteria, maxScore);
+}
+
+async function buildRubricPayload(
+    rubricText: string,
+    rubricFiles: File[],
+    maxScore: number
+): Promise<RubricCriterion[]> {
+    const jsonRubricFile = rubricFiles.find((file) =>
+        file.name.toLowerCase().endsWith(".json")
+    );
+
+    if (jsonRubricFile) {
+        try {
+            const raw = JSON.parse(await jsonRubricFile.text());
+            const items = Array.isArray(raw)
+                ? raw
+                : Array.isArray(raw?.criteria)
+                    ? raw.criteria
+                    : [];
+
+            if (items.length) {
+                const normalized = items.map((item : any, index: any) =>
+                    normalizeRubricCriterion(item, index)
+                );
+                return rebalanceRubricPoints(normalized, maxScore);
+            }
+        } catch {
+            // fallback xuống rubricText
+        }
+    }
+
+    return parseRubricTextToCriteria(rubricText, maxScore);
+}
 export default function CreateAssignmentPage() {
     const router = useRouter();
     const now = useMemo(() => new Date(), []);
@@ -131,7 +305,7 @@ export default function CreateAssignmentPage() {
     const [form, setForm] = useState<FormState>({
         title: "",
         classroomId: "",
-        language: "kotlin   ",
+        language: "kotlin",
         description: "",
         rubricText: "",
         startAt: defaultStartAt,
@@ -197,7 +371,6 @@ export default function CreateAssignmentPage() {
         () => classes.find((item) => item._id === form.classroomId) || null,
         [classes, form.classroomId]
     );
-
     const handleSubmit = async (status: "draft" | "published") => {
         try {
             setSubmitting(true);
@@ -206,19 +379,14 @@ export default function CreateAssignmentPage() {
 
             const body = new FormData();
             const parsedMaxScore = Number(form.maxScore || "10");
+            const effectiveMaxScore =
+                Number.isFinite(parsedMaxScore) && parsedMaxScore > 0 ? parsedMaxScore : 10;
 
-            const rubric = [
-                {
-                    code: "overall",
-                    title: "Chấm tổng thể",
-                    description: form.rubricText.trim() || "Chấm tổng thể theo yêu cầu bài tập",
-                    maxPoints: Number.isFinite(parsedMaxScore) && parsedMaxScore > 0 ? parsedMaxScore : 10,
-                    gradingSource: "manual",
-                    requiredEvidence: [],
-                    passThreshold: null,
-                    notes: "",
-                },
-            ];
+            const rubric = await buildRubricPayload(
+                form.rubricText,
+                rubricFiles,
+                effectiveMaxScore
+            );
 
             const submissionPolicy = {
                 acceptedFileTypes: ["zip"],
@@ -229,19 +397,37 @@ export default function CreateAssignmentPage() {
                 allowScreenshots: true,
             };
 
+            const runnerConfig = {
+                requiredFiles: [],
+                entryFiles: [],
+                buildCommand: "",
+                runCommand: "",
+                deviceProfiles: [],
+                screenshotTargets: [],
+            };
+
+            const aiConfig = {
+                enabled: true,
+                model: "gemini-2.5-flash",
+                temperature: 0.2,
+                feedbackLanguage: "vi",
+            };
+
             body.set("title", form.title);
             body.set("classroomId", form.classroomId);
-            body.set("language", form.language);
+            body.set("language", form.language.trim() || "kotlin");
             body.set("description", form.description);
             body.set("rubricText", form.rubricText);
             body.set("rubric", JSON.stringify(rubric));
             body.set("submissionPolicy", JSON.stringify(submissionPolicy));
+            body.set("runnerConfig", JSON.stringify(runnerConfig));
+            body.set("aiConfig", JSON.stringify(aiConfig));
             body.set("startAt", new Date(form.startAt).toISOString());
             body.set("dueAt", new Date(form.dueAt).toISOString());
             body.set("allowLateSubmit", String(form.allowLateSubmit));
             body.set("allowResubmit", String(form.allowResubmit));
             body.set("latePenaltyPercent", form.latePenaltyPercent || "0");
-            body.set("maxScore", form.maxScore || "10");
+            body.set("maxScore", String(effectiveMaxScore));
             body.set("status", status);
 
             for (const file of resourceFiles) {
@@ -303,7 +489,6 @@ export default function CreateAssignmentPage() {
             </div>
         );
     }
-
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

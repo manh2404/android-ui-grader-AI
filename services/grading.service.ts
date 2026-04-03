@@ -1,4 +1,5 @@
 import Submission from "@/models/Submission.model";
+import { buildGradingContext } from "@/services/grading-context.service";
 import type {
     AiFeedbackResult,
     AutoGradePayload,
@@ -62,6 +63,45 @@ function parseRubric(snapshot: any): RubricCriterion[] {
                 ? null
                 : Number(item.passThreshold),
         notes: String(item.notes || ""),
+    }));
+}
+
+function normalizeRubricForAutograde(
+    rubric: RubricCriterion[],
+    maxScore: number
+): RubricCriterion[] {
+    const cleaned = rubric.filter((item) => Number(item.maxPoints || 0) > 0);
+
+    if (!cleaned.length) {
+        return [
+            {
+                code: "overall",
+                title: "Chấm tổng thể",
+                description:
+                    "Đánh giá tổng thể dựa trên mô tả bài, rubric, starter code và bài nộp sinh viên.",
+                maxPoints: maxScore > 0 ? maxScore : 10,
+                gradingSource: "ai",
+                requiredEvidence: [],
+                passThreshold: null,
+                notes: "Auto-generated fallback rubric",
+            },
+        ];
+    }
+
+    const hasAutoCriterion = cleaned.some(
+        (item) =>
+            item.gradingSource === "ai" ||
+            item.gradingSource === "hybrid" ||
+            item.gradingSource === "runner"
+    );
+
+    if (hasAutoCriterion) {
+        return cleaned;
+    }
+
+    return cleaned.map((item) => ({
+        ...item,
+        gradingSource: "ai",
     }));
 }
 
@@ -290,11 +330,13 @@ function serializeSubmission(submission: any) {
 
 async function loadSubmission(submissionId: string) {
     return Submission.findById(submissionId)
-        .populate("assignmentId", "title maxScore dueAt startAt status")
+        .populate(
+            "assignmentId",
+            "title maxScore dueAt startAt status description rubricText attachments language rubric aiConfig"
+        )
         .populate("classroomId", "name code semester academicYear")
         .populate("studentId", "name email studentCode");
 }
-
 export const gradingService = {
     async getSubmissionDetail(submissionId: string) {
         const submission = await loadSubmission(submissionId);
@@ -332,10 +374,12 @@ export const gradingService = {
             throw new Error("Bài nộp chưa có assignmentSnapshot để chấm");
         }
 
-        const rubric = parseRubric(submission.assignmentSnapshot);
+        const rawRubric = parseRubric(submission.assignmentSnapshot);
         const maxScore =
             Number(submission.assignmentSnapshot.maxScore || 0) ||
-            rubric.reduce((sum, item) => sum + Number(item.maxPoints || 0), 0);
+            rawRubric.reduce((sum, item) => sum + Number(item.maxPoints || 0), 0);
+
+        const rubric = normalizeRubricForAutograde(rawRubric, maxScore);
 
         const aiCriteria = rubric.filter(
             (item) => item.gradingSource === "ai" || item.gradingSource === "hybrid"
@@ -345,14 +389,15 @@ export const gradingService = {
             submission.autoGrade?.aiFeedback || null;
 
         const aiEnabled = submission.assignmentSnapshot?.aiConfig?.enabled !== false;
-
+        const gradingContext = await buildGradingContext(submission);
         if (aiEnabled && (params.regenerateAi || !aiFeedback) && aiCriteria.length) {
             aiFeedback = await generateAiFeedback({
                 assignmentTitle:
                     submission.assignmentSnapshot?.title ||
                     submission.assignmentId?.title ||
                     "Bài tập",
-                submissionSummary: makeSubmissionSummary(submission),
+                gradingContextText: gradingContext.text,
+                multimodalParts: gradingContext.multimodalParts,
                 rubric: aiCriteria,
                 runnerReport: params.runnerReport || submission.autoGrade?.runnerEvidence || null,
                 model:
@@ -379,7 +424,7 @@ export const gradingService = {
 
         const hasManual = rubric.some((item) => item.gradingSource === "manual");
         const lowConfidence = (aiFeedback?.criterionFeedback || []).some(
-            (item) => Number(item.confidence || 0) < 0.6
+            (item) => Number(item.confidence || 0) < 0.35
         );
 
         const needsTeacherReview = hasManual || lowConfidence;
