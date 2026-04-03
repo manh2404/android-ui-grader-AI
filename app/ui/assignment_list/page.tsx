@@ -1324,7 +1324,7 @@ export default function AssignmentListPage() {
 
                                     {detailItem.latestSubmission?._id ? (
                                         <Link
-                                            href={`/ui/grading_detail?submissionId=${detailItem.latestSubmission._id}`}
+                                            href={`/ui/grading_detail?assignmentId=${detailItem._id}&submissionId=${detailItem.latestSubmission._id}`}
                                             className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
                                         >
                                             Xem kết quả chấm

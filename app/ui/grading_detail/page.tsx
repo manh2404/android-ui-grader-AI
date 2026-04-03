@@ -17,6 +17,13 @@ type SidebarStudent = {
     missing: boolean;
 };
 
+type AssignmentOption = {
+    _id: string;
+    title: string;
+    dueAt?: string;
+    classroomName?: string;
+};
+
 function asObj(value: unknown): AnyObj {
     return typeof value === "object" && value !== null ? (value as AnyObj) : {};
 }
@@ -254,6 +261,7 @@ export default function GradingDetailPage() {
     const studentIdParam = searchParams.get("studentId") || "";
 
     const [assignment, setAssignment] = useState<any>(null);
+    const [assignmentOptions, setAssignmentOptions] = useState<AssignmentOption[]>([]);
     const [students, setStudents] = useState<SidebarStudent[]>([]);
     const [selectedStudentId, setSelectedStudentId] = useState("");
     const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
@@ -288,6 +296,23 @@ export default function GradingDetailPage() {
         10;
     const rubric = detail?.assignmentSnapshot?.rubric || assignment?.rubric || [];
     const selectedFile = detail?.sourceArchive || detail?.files?.[0] || null;
+    async function loadAssignmentOptions() {
+        const json = await requestJson(`/api/assignments`);
+        const list = Array.isArray(json.data) ? json.data : [];
+
+        const normalized = list
+            .map((item) => normalizeAssignment(item))
+            .filter((item) => item._id)
+            .map((item) => ({
+                _id: item._id,
+                title: item.title,
+                dueAt: item.dueAt,
+                classroomName: item.classroom?.name || "",
+            }));
+
+        setAssignmentOptions(normalized);
+        return normalized;
+    }
 
     function syncUrl(nextAssignmentId: string, nextStudentId?: string | null, nextSubmissionId?: string | null) {
         const params = new URLSearchParams(searchParams.toString());
@@ -397,14 +422,58 @@ export default function GradingDetailPage() {
 
     useEffect(() => {
         const run = async () => {
+            try {
+                if (!assignmentOptions.length) {
+                    await loadAssignmentOptions();
+                }
+            } catch (e) {
+                setError(e instanceof Error ? e.message : "Không thể tải danh sách bài tập");
+            }
+
+            if (!assignmentId && submissionIdParam) {
+                try {
+                    setLoading(true);
+                    const submissionJson = await requestJson(`/api/submissions/${submissionIdParam}`);
+                    const submission = asObj(submissionJson.data);
+
+                    const resolvedAssignmentId = toId(
+                        asObj(submission.assignment || submission.assignmentId)._id ||
+                        submission.assignmentId
+                    );
+
+                    const resolvedStudentId = toId(
+                        asObj(submission.student || submission.studentId)._id ||
+                        submission.studentId
+                    );
+
+                    if (resolvedAssignmentId) {
+                        syncUrl(
+                            resolvedAssignmentId,
+                            resolvedStudentId || null,
+                            submissionIdParam
+                        );
+                    } else {
+                        setError("Không xác định được bài tập của bài nộp này.");
+                        setLoading(false);
+                    }
+                } catch (e) {
+                    setError(e instanceof Error ? e.message : "Không thể tải chi tiết bài nộp");
+                    setLoading(false);
+                }
+                return;
+            }
+
             if (!assignmentId) {
                 try {
                     setLoading(true);
-                    const json = await requestJson(`/api/assignments`);
-                    const first = Array.isArray(json.data) ? asObj(json.data[0]) : null;
+                    const options = assignmentOptions.length
+                        ? assignmentOptions
+                        : await loadAssignmentOptions();
+
+                    const first = options[0] || null;
 
                     if (first?._id) {
-                        syncUrl(toText(first._id), null, null);
+                        syncUrl(first._id, null, null);
                     } else {
                         setError("Chưa có bài tập nào để chấm.");
                         setLoading(false);
@@ -507,6 +576,29 @@ export default function GradingDetailPage() {
                             Lớp: {assignment?.classroom?.name || "--"} • Hạn nộp:{" "}
                             {formatDateTime(assignment?.dueAt)}
                         </p>
+                        <div className="mt-4 flex flex-col gap-2 sm:max-w-md">
+                            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Chọn bài tập để chấm
+                            </label>
+
+                            <select
+                                value={assignmentId}
+                                onChange={(e) => {
+                                    const nextId = e.target.value;
+                                    if (!nextId || nextId === assignmentId) return;
+                                    syncUrl(nextId, null, null);
+                                }}
+                                className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-orange-300"
+                            >
+                                {assignmentOptions.map((item) => (
+                                    <option key={item._id} value={item._id}>
+                                        {item.title}
+                                        {item.classroomName ? ` • ${item.classroomName}` : ""}
+                                        {item.dueAt ? ` • ${formatDate(item.dueAt)}` : ""}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
 
                     <div className="flex flex-wrap gap-3">
