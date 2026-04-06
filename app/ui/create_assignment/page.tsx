@@ -254,11 +254,43 @@ function parseRubricTextToCriteria(
     return rebalanceRubricPoints(criteria, maxScore);
 }
 
+async function requestRubricParse(params: {
+    rubricText: string;
+    maxScore: number;
+    assignmentTitle: string;
+    language: string;
+}) {
+    const res = await fetch("/api/rubric/parse", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(params),
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || !json.success) {
+        throw new Error(json.message || "Không thể phân tích rubric");
+    }
+
+    return json.data as {
+        rubric: RubricCriterion[];
+        source: "gemini" | "heuristic";
+        warnings: string[];
+    };
+}
 async function buildRubricPayload(
     rubricText: string,
     rubricFiles: File[],
-    maxScore: number
-): Promise<RubricCriterion[]> {
+    maxScore: number,
+    assignmentTitle: string,
+    language: string
+): Promise<{
+    rubric: RubricCriterion[];
+    source: string;
+    warnings: string[];
+}> {
     const jsonRubricFile = rubricFiles.find((file) =>
         file.name.toLowerCase().endsWith(".json")
     );
@@ -273,17 +305,35 @@ async function buildRubricPayload(
                     : [];
 
             if (items.length) {
-                const normalized = items.map((item : any, index: any) =>
+                const normalized = items.map((item: any, index: number) =>
                     normalizeRubricCriterion(item, index)
                 );
-                return rebalanceRubricPoints(normalized, maxScore);
+
+                return {
+                    rubric: rebalanceRubricPoints(normalized, maxScore),
+                    source: "file_json",
+                    warnings: [],
+                };
             }
         } catch {
-            // fallback xuống rubricText
+            // fallback xuống API parse
         }
     }
 
-    return parseRubricTextToCriteria(rubricText, maxScore);
+    try {
+        return await requestRubricParse({
+            rubricText,
+            maxScore,
+            assignmentTitle,
+            language,
+        });
+    } catch {
+        return {
+            rubric: parseRubricTextToCriteria(rubricText, maxScore),
+            source: "heuristic",
+            warnings: ["API parse rubric lỗi, dùng parser fallback phía client."],
+        };
+    }
 }
 export default function CreateAssignmentPage() {
     const router = useRouter();
@@ -312,13 +362,19 @@ export default function CreateAssignmentPage() {
         dueAt: defaultDueAt,
         allowLateSubmit: false,
         allowResubmit: true,
-        latePenaltyPercent: "10",
+        latePenaltyPercent: "0",
         maxScore: "10",
     });
 
     const [resourceFiles, setResourceFiles] = useState<File[]>([]);
     const [rubricFiles, setRubricFiles] = useState<File[]>([]);
     const [templateFiles, setTemplateFiles] = useState<File[]>([]);
+
+    // rubric
+    const [rubricPreview, setRubricPreview] = useState<RubricCriterion[]>([]);
+    const [rubricParseWarnings, setRubricParseWarnings] = useState<string[]>([]);
+    const [rubricParseSource, setRubricParseSource] = useState<string>("");
+    const [parsingRubric, setParsingRubric] = useState(false);
 
     const canManageAssignments =
         currentUser?.role === "teacher" || currentUser?.role === "admin";
@@ -382,11 +438,18 @@ export default function CreateAssignmentPage() {
             const effectiveMaxScore =
                 Number.isFinite(parsedMaxScore) && parsedMaxScore > 0 ? parsedMaxScore : 10;
 
-            const rubric = await buildRubricPayload(
+            const rubricResult = await buildRubricPayload(
                 form.rubricText,
                 rubricFiles,
-                effectiveMaxScore
+                effectiveMaxScore,
+                form.title || "Bài tập",
+                "vi"
             );
+
+            const rubric = rubricResult.rubric;
+            setRubricPreview(rubricResult.rubric);
+            setRubricParseWarnings(rubricResult.warnings);
+            setRubricParseSource(rubricResult.source);
 
             const submissionPolicy = {
                 acceptedFileTypes: ["zip"],
@@ -615,6 +678,89 @@ export default function CreateAssignmentPage() {
                                     placeholder="Ví dụ: giao diện 2 điểm, xử lý dữ liệu 4 điểm, validation 2 điểm, clean code 2 điểm..."
                                     className="min-h-[120px] w-full rounded-2xl border border-slate-200 p-4 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
                                 />
+                                <div className="mt-3 flex flex-wrap items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            try {
+                                                setParsingRubric(true);
+                                                setError("");
+
+                                                const parsedMaxScore = Number(form.maxScore || "10");
+                                                const effectiveMaxScore =
+                                                    Number.isFinite(parsedMaxScore) && parsedMaxScore > 0 ? parsedMaxScore : 10;
+
+                                                const result = await buildRubricPayload(
+                                                    form.rubricText,
+                                                    rubricFiles,
+                                                    effectiveMaxScore,
+                                                    form.title || "Bài tập",
+                                                    "vi"
+                                                );
+
+                                                setRubricPreview(result.rubric);
+                                                setRubricParseWarnings(result.warnings);
+                                                setRubricParseSource(result.source);
+                                            } catch (error) {
+                                                setError(
+                                                    error instanceof Error
+                                                        ? error.message
+                                                        : "Không thể phân tích rubric"
+                                                );
+                                            } finally {
+                                                setParsingRubric(false);
+                                            }
+                                        }}
+                                        className="inline-flex items-center rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
+                                        disabled={parsingRubric || !form.rubricText.trim()}
+                                    >
+                                        {parsingRubric ? "Đang phân tích..." : "Phân tích rubric bằng AI"}
+                                    </button>
+
+                                    {rubricParseSource ? (
+                                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                                            Nguồn: {rubricParseSource}
+                                        </span>
+                                    ) : null}
+                                </div>
+                                {rubricPreview.length ? (
+                                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                        <div className="mb-3 flex items-center justify-between gap-3">
+                                            <p className="font-semibold text-slate-900">Rubric đã chuẩn hóa</p>
+                                            <p className="text-sm text-slate-500">
+                                                Tổng: {rubricPreview.reduce((sum, item) => sum + Number(item.maxPoints || 0), 0)}
+                                            </p>
+                                        </div>
+
+                                        {rubricParseWarnings.length ? (
+                                            <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                                                {rubricParseWarnings.join(" • ")}
+                                            </div>
+                                        ) : null}
+
+                                        <div className="space-y-3">
+                                            {rubricPreview.map((item) => (
+                                                <div
+                                                    key={item.code}
+                                                    className="rounded-xl border border-slate-200 bg-white px-4 py-3"
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <p className="font-semibold text-slate-900">{item.title}</p>
+                                                            <p className="mt-1 text-sm text-slate-500">{item.description}</p>
+                                                            <p className="mt-2 text-xs text-slate-400">
+                                                                code: {item.code} • source: {item.gradingSource}
+                                                            </p>
+                                                        </div>
+                                                        <span className="rounded-full bg-orange-50 px-3 py-1 text-sm font-bold text-orange-600">
+                                                            {item.maxPoints}đ
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
                     </section>

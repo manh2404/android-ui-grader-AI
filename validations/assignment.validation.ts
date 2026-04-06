@@ -98,6 +98,25 @@ function refineAssignmentData<T extends {
     allowLateSubmit?: boolean;
     latePenaltyPercent?: number;
 }>(data: T, ctx: z.RefinementCtx) {
+    // check trùng code
+    if (Array.isArray(data.rubric)) {
+        const seenCodes = new Set<string>();
+
+        data.rubric.forEach((item: any, index: number) => {
+            const code = String(item?.code || "").trim().toLowerCase();
+            if (!code) return;
+
+            if (seenCodes.has(code)) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: `Rubric có code bị trùng: ${item.code}`,
+                    path: ["rubric", index, "code"],
+                });
+            }
+
+            seenCodes.add(code);
+        });
+    }
     if (data.startAt && data.dueAt) {
         const startAt = new Date(data.startAt).getTime();
         const dueAt = new Date(data.dueAt).getTime();
