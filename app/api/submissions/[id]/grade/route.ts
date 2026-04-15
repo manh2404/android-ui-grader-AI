@@ -11,6 +11,7 @@ type RouteContext = {
 
 type GradeSubmissionBody = {
     regenerateAi?: boolean;
+    regenerateRunner?: boolean;
     runnerReport?: unknown;
 };
 
@@ -40,7 +41,8 @@ export async function POST(request: Request, context: RouteContext) {
             submissionId: id,
             actorId,
             regenerateAi: Boolean(body.regenerateAi),
-            runnerReport: body.runnerReport ?? null,
+            regenerateRunner: Boolean(body.regenerateRunner),
+            runnerReport: (body.runnerReport as any) ?? null,
         });
 
         return successResponse(data, "Chấm tự động thành công");

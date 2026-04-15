@@ -460,14 +460,30 @@ export default function CreateAssignmentPage() {
                 allowScreenshots: true,
             };
 
-            const runnerConfig = {
-                requiredFiles: [],
-                entryFiles: [],
-                buildCommand: "",
-                runCommand: "",
-                deviceProfiles: [],
-                screenshotTargets: [],
-            };
+            const normalizedLanguage = (form.language || "kotlin").trim().toLowerCase();
+            const isAndroidKotlin = normalizedLanguage === "kotlin";
+
+            const runnerConfig = isAndroidKotlin
+                ? {
+                    requiredFiles: [
+                        "settings.gradle.kts",
+                        "app/build.gradle.kts",
+                        "AndroidManifest.xml",
+                    ],
+                    entryFiles: ["app/src/main/java", "app/src/main/kotlin"],
+                    buildCommand: "./gradlew assembleDebug",
+                    runCommand: "",
+                    deviceProfiles: ["small-phone"],
+                    screenshotTargets: ["form-screen", "list-screen"],
+                }
+                : {
+                    requiredFiles: [],
+                    entryFiles: [],
+                    buildCommand: "",
+                    runCommand: "",
+                    deviceProfiles: [],
+                    screenshotTargets: [],
+                };
 
             const aiConfig = {
                 enabled: true,

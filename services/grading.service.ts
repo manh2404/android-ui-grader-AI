@@ -9,6 +9,7 @@ import type {
     RunnerReportInput,
 } from "@/lib/grading-contract";
 import { generateAiFeedback } from "@/services/gemini.service";
+import { runRunnerForSubmission } from "@/services/runner.service";
 
 function toStringId(value: unknown): string {
     if (!value) return "";
@@ -105,30 +106,12 @@ function normalizeRubricForAutograde(
     }));
 }
 
-function makeSubmissionSummary(submission: any) {
-    return JSON.stringify(
-        {
-            repositoryUrl: submission.repositoryUrl || "",
-            note: submission.note || "",
-            sourceArchive: submission.sourceArchive || null,
-            screenshots: Array.isArray(submission.screenshots)
-                ? submission.screenshots
-                : [],
-            files: Array.isArray(submission.files) ? submission.files : [],
-            student: {
-                name: submission.studentId?.name || "",
-                studentCode: submission.studentId?.studentCode || "",
-            },
-            assignmentSnapshot: submission.assignmentSnapshot || null,
-        },
-        null,
-        2
-    );
-}
-
-function checksForCriterion(runnerReport: RunnerReportInput | null | undefined, criterionCode: string) {
+function checksForCriterion(
+    runnerReport: RunnerReportInput | null | undefined,
+    criterionCode: string
+) {
     return Array.isArray(runnerReport?.checks)
-        ? runnerReport!.checks!.filter((item) => item.criterionCode === criterionCode)
+        ? runnerReport.checks.filter((item) => item.criterionCode === criterionCode)
         : [];
 }
 
@@ -144,6 +127,7 @@ function deriveScoreFromChecks(
             return {
                 awardedPoints: round2(ratio * criterion.maxPoints),
                 note: `Derived from visualSimilarity=${runnerReport.visualSimilarity}`,
+                hasEvidence: true,
             };
         }
 
@@ -155,26 +139,38 @@ function deriveScoreFromChecks(
             return {
                 awardedPoints: round2(ratio * criterion.maxPoints),
                 note: `Derived from accessibilityScore=${runnerReport.accessibilityScore}`,
+                hasEvidence: true,
             };
         }
 
-        if (criterion.code.includes("build") && runnerReport?.buildPassed !== undefined) {
+        if (
+            criterion.code.includes("build") &&
+            runnerReport?.buildPassed !== undefined &&
+            runnerReport?.buildPassed !== null
+        ) {
             return {
                 awardedPoints: runnerReport.buildPassed ? criterion.maxPoints : 0,
                 note: "Derived from buildPassed",
+                hasEvidence: true,
             };
         }
 
-        if (criterion.code.includes("test") && runnerReport?.testPassed !== undefined) {
+        if (
+            criterion.code.includes("test") &&
+            runnerReport?.testPassed !== undefined &&
+            runnerReport?.testPassed !== null
+        ) {
             return {
                 awardedPoints: runnerReport.testPassed ? criterion.maxPoints : 0,
                 note: "Derived from testPassed",
+                hasEvidence: true,
             };
         }
 
         return {
             awardedPoints: 0,
             note: "No runner evidence matched this criterion.",
+            hasEvidence: false,
         };
     }
 
@@ -186,19 +182,14 @@ function deriveScoreFromChecks(
     );
 
     if (scoredChecks.length) {
-        const totalScore = scoredChecks.reduce(
-            (sum, item) => sum + Number(item.score || 0),
-            0
-        );
-        const totalMax = scoredChecks.reduce(
-            (sum, item) => sum + Number(item.maxScore || 0),
-            0
-        );
+        const totalScore = scoredChecks.reduce((sum, item) => sum + Number(item.score || 0), 0);
+        const totalMax = scoredChecks.reduce((sum, item) => sum + Number(item.maxScore || 0), 0);
         const ratio = totalMax > 0 ? totalScore / totalMax : 0;
 
         return {
             awardedPoints: round2(clamp(ratio, 0, 1) * criterion.maxPoints),
             note: `Derived from explicit check scores ${totalScore}/${totalMax}`,
+            hasEvidence: true,
         };
     }
 
@@ -208,6 +199,7 @@ function deriveScoreFromChecks(
     return {
         awardedPoints: round2(clamp(ratio, 0, 1) * criterion.maxPoints),
         note: `Derived from passed checks ${passedCount}/${checks.length}`,
+        hasEvidence: true,
     };
 }
 
@@ -217,10 +209,7 @@ function buildBreakdown(params: {
     aiFeedback?: AiFeedbackResult | null;
 }) {
     const aiMap = new Map(
-        (params.aiFeedback?.criterionFeedback || []).map((item) => [
-            item.criterionCode,
-            item,
-        ])
+        (params.aiFeedback?.criterionFeedback || []).map((item) => [item.criterionCode, item])
     );
 
     const criterionBreakdown: CriterionBreakdown[] = params.rubric.map((criterion) => {
@@ -257,13 +246,45 @@ function buildBreakdown(params: {
                 gradingSource: criterion.gradingSource,
                 awardedPoints: round2(aiScore),
                 maxPoints: criterion.maxPoints,
-                note: aiItem
-                    ? `AI confidence: ${aiItem.confidence}`
-                    : "AI feedback missing.",
+                note: aiItem ? `AI confidence: ${aiItem.confidence}` : "AI feedback missing.",
             };
         }
 
         const runner = deriveScoreFromChecks(criterion, params.runnerReport);
+
+        if (!runner.hasEvidence && aiItem) {
+            return {
+                criterionCode: criterion.code,
+                title: criterion.title,
+                gradingSource: criterion.gradingSource,
+                awardedPoints: round2(aiScore),
+                maxPoints: criterion.maxPoints,
+                note: "AI only. Runner chưa có evidence.",
+            };
+        }
+
+        if (runner.hasEvidence && !aiItem) {
+            return {
+                criterionCode: criterion.code,
+                title: criterion.title,
+                gradingSource: criterion.gradingSource,
+                awardedPoints: round2(runner.awardedPoints),
+                maxPoints: criterion.maxPoints,
+                note: "Runner only. AI feedback missing.",
+            };
+        }
+
+        if (!runner.hasEvidence && !aiItem) {
+            return {
+                criterionCode: criterion.code,
+                title: criterion.title,
+                gradingSource: criterion.gradingSource,
+                awardedPoints: 0,
+                maxPoints: criterion.maxPoints,
+                note: "Neither runner nor AI produced evidence.",
+            };
+        }
+
         const hybridScore = round2((runner.awardedPoints + aiScore) / 2);
 
         return {
@@ -337,6 +358,7 @@ async function loadSubmission(submissionId: string) {
         .populate("classroomId", "name code semester academicYear")
         .populate("studentId", "name email studentCode");
 }
+
 export const gradingService = {
     async getSubmissionDetail(submissionId: string) {
         const submission = await loadSubmission(submissionId);
@@ -362,6 +384,7 @@ export const gradingService = {
         submissionId: string;
         actorId: string;
         regenerateAi?: boolean;
+        regenerateRunner?: boolean;
         runnerReport?: RunnerReportInput | null;
     }) {
         const submission = await loadSubmission(params.submissionId);
@@ -381,45 +404,50 @@ export const gradingService = {
 
         const rubric = normalizeRubricForAutograde(rawRubric, maxScore);
 
+        let effectiveRunnerReport: RunnerReportInput | null =
+            params.runnerReport ??
+            (params.regenerateRunner ? null : submission.autoGrade?.runnerEvidence ?? null);
+
+        if (!effectiveRunnerReport) {
+            effectiveRunnerReport = await runRunnerForSubmission(submission);
+        }
+
         const aiCriteria = rubric.filter(
             (item) => item.gradingSource === "ai" || item.gradingSource === "hybrid"
         );
 
-        let aiFeedback: AiFeedbackResult | null =
-            submission.autoGrade?.aiFeedback || null;
+        let aiFeedback: AiFeedbackResult | null = submission.autoGrade?.aiFeedback || null;
 
         const aiEnabled = submission.assignmentSnapshot?.aiConfig?.enabled !== false;
         const gradingContext = await buildGradingContext(submission);
+
         if (aiEnabled && (params.regenerateAi || !aiFeedback) && aiCriteria.length) {
             aiFeedback = await generateAiFeedback({
                 assignmentTitle:
-                    submission.assignmentSnapshot?.title ||
-                    submission.assignmentId?.title ||
-                    "Bài tập",
+                    submission.assignmentSnapshot?.title || submission.assignmentId?.title || "Bài tập",
                 gradingContextText: gradingContext.text,
                 multimodalParts: gradingContext.multimodalParts,
                 rubric: aiCriteria,
-                runnerReport: params.runnerReport || submission.autoGrade?.runnerEvidence || null,
+                runnerReport: effectiveRunnerReport,
                 model:
                     submission.assignmentSnapshot?.aiConfig?.model ||
                     process.env.GEMINI_MODEL ||
                     "gemini-2.5-flash",
-                language:
-                    submission.assignmentSnapshot?.aiConfig?.feedbackLanguage || "vi",
+                language: submission.assignmentSnapshot?.aiConfig?.feedbackLanguage || "vi",
             });
         }
 
         const criterionBreakdown = buildBreakdown({
             rubric,
-            runnerReport: params.runnerReport || submission.autoGrade?.runnerEvidence || null,
+            runnerReport: effectiveRunnerReport,
             aiFeedback,
         });
 
         const autoScore = round2(
-            criterionBreakdown.reduce(
-                (sum, item) => sum + Number(item.awardedPoints || 0),
-                0
-            )
+            criterionBreakdown.reduce((sum, item) => {
+                if (item.gradingSource === "manual") return sum;
+                return sum + Number(item.awardedPoints || 0);
+            }, 0)
         );
 
         const hasManual = rubric.some((item) => item.gradingSource === "manual");
@@ -428,9 +456,7 @@ export const gradingService = {
         );
 
         const needsTeacherReview = hasManual || lowConfidence;
-        const status: GradeStatus = needsTeacherReview
-            ? "needs_teacher_review"
-            : "auto_graded";
+        const status: GradeStatus = needsTeacherReview ? "needs_teacher_review" : "auto_graded";
 
         const autoGradePayload: AutoGradePayload = {
             score: autoScore,
@@ -439,7 +465,7 @@ export const gradingService = {
             status,
             needsTeacherReview,
             criterionBreakdown,
-            runnerEvidence: params.runnerReport || submission.autoGrade?.runnerEvidence || null,
+            runnerEvidence: effectiveRunnerReport,
             aiFeedback,
             gradedAt: new Date().toISOString(),
         };
