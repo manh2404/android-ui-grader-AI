@@ -26,7 +26,7 @@ export function SettingsSidebar({ groups, versionInfo }: Props) {
     const pathname = usePathname();
 
     return (
-        <aside className="hidden w-72 flex-col gap-6 overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-4 md:flex">
+        <aside className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm h-fit self-start">
             {groups.map((group) => (
                 <div key={group.title}>
                     <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -66,7 +66,7 @@ export function SettingsSidebar({ groups, versionInfo }: Props) {
                 </div>
             ))}
 
-            <div className="mt-auto rounded-xl border border-orange-100 bg-orange-50 p-4">
+            <div className="mt-8 rounded-2xl border border-orange-100 bg-orange-50 p-4">
                 <p className="mb-1 text-xs font-bold text-orange-500">
                     Phiên bản {versionInfo.version}
                 </p>

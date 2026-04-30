@@ -1,8 +1,6 @@
 import User, {IUser, UserRole} from "@/models/User.model";
-import {normalize} from "zod";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
-import {nextAnalyze} from "next/dist/cli/next-analyze";
 
 type UserStatusFilter = "all" | "active" | "locked";
 type RoleFilter = "all" | UserRole;
@@ -26,7 +24,14 @@ type CreateUserPayload = {
 }
 
 type UpdateUsserPayload = {
+    name?: string;
+    email?: string;
+    studentCode?: string;
+    roles?: UserRole;
+    department?: string;
+    cohort?: string;
     isActive?: boolean;
+    password?: string;
 };
 
 function normalizeText(value: unknown, fallback= ""){
@@ -40,7 +45,7 @@ function normalizeEmail(value: unknown){
 }
 
 function normalizeRole(value : unknown){
-    if (value === "admin" || value === "teacher" || value === " User" ){
+    if (value === "admin" || value === "teacher" || value === "User" ){
         return value;
     }
     return "User";
@@ -127,7 +132,7 @@ export const userManagementService = {
             User.countDocuments(query),
             User.countDocuments(),
             User.countDocuments({isActive: {$ne: false}}),
-            User.countDocuments({IsActive: false}),
+            User.countDocuments({isActive: false}),
         ]);
 
         return{
@@ -195,23 +200,75 @@ export const userManagementService = {
         if (!mongoose.Types.ObjectId.isValid(id)) {
             throw new Error("ID người dùng không hợp lệ");
         }
+        const existingUser  = await User.findOne({_id:id}).lean();
+        if (!existingUser ) {
+            throw new Error("không tìm thấy người dùng")
+        }
+
+        const name = payload.name !== undefined ? normalizeText(payload.name) : undefined;
+        const email = payload.email !== undefined ? normalizeEmail(payload.email) : undefined;
+        const studentCode = payload.studentCode !== undefined ? normalizeText(payload.studentCode).toUpperCase() : undefined;
+        const role = payload.roles !== undefined ? normalizeText(payload.roles) : undefined;
+        const department = payload.department !== undefined ? normalizeText(payload.department) : undefined;
+        const cohort = payload.cohort === undefined ? undefined : payload.cohort;
+        const password = payload.password !== undefined ? normalizeText(payload.password ) : undefined;
+        const nextIsActive= typeof payload.isActive === "boolean"? payload.isActive: undefined
+
+        if (name!== undefined && !name) {
+            throw new Error("tên không được bỏ trống")
+        }
+        if (email !== undefined) {
+            if (!email || !isValidEmail(email)) {
+                throw new Error("email không hợp lệ")
+            }
+            const existedEmail = await  User.findOne({email,_id:{$ne:id}},).lean();
+            if (existedEmail){
+                throw new Error("email đã tồn tại")
+            }
+        }
+        if (studentCode !== undefined && studentCode) {
+            if (studentCode.length < 10) {
+                throw new Error("mã sinh viên phải từ 10 ký tự trở lên")
+            }
+            const existedStudentCode = await User.findOne({studentCode:studentCode, _id: {$ne:id}},).lean();
+            if (existedStudentCode){
+                throw new Error("mã sinh viên đã tồn tại")
+            }
+        }
+
+        const finalRole = role ?? existingUser.role ?? "User";
+        const finalStudentCode =
+            studentCode !== undefined ? (studentCode || undefined) : existingUser.studentCode;
+
+        if (finalRole === "User" && !finalStudentCode) {
+            throw new Error("Mã sinh viên là bắt buộc với tài khoản sinh viên");
+        }
 
         if (actorId && actorId=== id && payload.isActive == false){
             throw new Error("bạn không thẻ khóa chính mình");
         }
-
-        const nextIsActive= typeof payload.isActive === "boolean"? payload.isActive: undefined
         if (typeof nextIsActive !== "boolean"){
             throw new Error("thiếu trạng thái cập nhập")
         }
+
+        const updateData : Record<string, unknown> = {};
+        if (name !== undefined) updateData.name = name;
+        if (email !== undefined) updateData.email = email;
+        if (role !== undefined) updateData.role = role;
+        if (studentCode !== undefined) updateData.studentCode = studentCode || undefined;
+        if (department !== undefined) updateData.department = department;
+        if (cohort !== undefined) updateData.cohort = cohort;
+        if (typeof nextIsActive === "boolean") updateData.isActive = nextIsActive;
+        if (password !== undefined && password) {
+            if (password.length < 6) {
+                throw new Error("Mật khẩu phải có ít nhất 6 ký tự");
+            }
+            updateData.password = await bcrypt.hash(password, 6);
+        }
         const updated = await User.findByIdAndUpdate(
             id,
-            {
-                $set : {
-                    isActive: nextIsActive,
-                },
-            },
-            {new : true , runValidators: true}
+            { $set: updateData },
+            { new: true, runValidators: true }
         )
             .select("name email studentCode role department cohort isVerified isActive lastLoginAt createdAt updatedAt")
             .lean();
@@ -224,7 +281,7 @@ export const userManagementService = {
     },
 
     async deleteUser(id: string,actorId?: string){
-        if (mongoose.Types.ObjectId.isValid(id)) {
+        if (!mongoose.Types.ObjectId.isValid(id)) {
             throw new Error("ID người dùng không hợp lệ")
         }
 

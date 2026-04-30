@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
 import { sidebarGroups, versionInfo } from "@/lib/server-config-data";
 
@@ -60,6 +60,18 @@ type CreateUserForm = {
     cohort: string;
 };
 
+// update
+type EditUserForm = {
+    _id: string;
+    name: string;
+    email: string;
+    studentCode: string;
+    role: UserRole;
+    department: string;
+    cohort: string;
+    isActive: boolean;
+    password: string;
+}
 const defaultCreateForm: CreateUserForm = {
     name: "",
     email: "",
@@ -147,6 +159,19 @@ export function UserManagementClient() {
     const [status, setStatus] = useState<UserStatus>("all");
     const [page, setPage] = useState(1);
     const [createForm, setCreateForm] = useState<CreateUserForm>(defaultCreateForm);
+    const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editForm, setEditForm] = useState<EditUserForm>({
+        _id: "",
+        name: "",
+        email: "",
+        studentCode: "",
+        role: "User",
+        department: "",
+        cohort: "",
+        isActive: true,
+        password: "",
+    });
 
         const loadUsers = useCallback(async () => {
             try {
@@ -297,6 +322,82 @@ export function UserManagementClient() {
         setPage(safePage)
     }
 
+    // hàm mở update
+    const handleOpenEditModal = (user: UserItem) => {
+        setEditForm({
+            _id: user._id,
+            name: user.name || "",
+            email: user.email || "",
+            studentCode: user.studentCode || "",
+            role: user.role,
+            department: user.department || "",
+            cohort: user.cohort || "",
+            isActive: user.isActive,
+            password: "",
+        })
+        setShowEditModal(true)
+    }
+
+    // hàm lưu chỉnh sửa
+    const handleUpdateuser = async () => {
+        try {
+            setSubmitting(true);
+            setError("");
+            setMessage("");
+
+            const respone = await fetch(`/api/settings/users/${editForm._id}`,{
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    name: editForm.name,
+                    email: editForm.email,
+                    studentCode: editForm.studentCode,
+                    roles: editForm.role,
+                    department: editForm.department,
+                    cohort: editForm.cohort,
+                    isActive: editForm.isActive,
+                    password: editForm.password || undefined,
+                }),
+            });
+
+            const json = (await parseJsonSafe<ApiResponse<UserItem>>(respone)) as ApiResponse<UserItem>;
+
+            if (!respone.ok || !json.success) {
+                throw new Error("không thể cập nhập người dùng")
+            }
+
+            setShowEditModal(false)
+            setMessage(json.message || "cập nhập người dùng thành công");
+            await loadUsers();
+        }catch (updateError) {
+            setError(updateError instanceof Error? updateError.message :" không thể cập nhập người dùng")
+        }finally {
+            setSubmitting(false);
+        }
+    }
+
+    // hàm đóng mở menu
+    const toggleActionMenu = (userId: string) => {
+        setOpenActionMenuId((prev) => (prev === userId ? null : userId));
+    };
+
+    // đóng menu
+    const actionMenuRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as Node;
+            if (actionMenuRef.current && actionMenuRef.current.contains(target)) {
+                return;
+            }
+            setOpenActionMenuId(null);
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
     return (
         <div className="flex min-h-screen gap-6 overflow-hidden">
             <SettingsSidebar
@@ -495,32 +596,69 @@ export function UserManagementClient() {
                                                 </span>
                                         </td>
                                         <td className="px-5 py-4 text-sm text-slate-500">{formatDate(user.lastLoginAt)}</td>
-                                        <td className="px-5 py-4">
-                                            <div className="flex justify-end gap-2">
-                                                <button
-                                                    type="button"
-                                                    disabled={submitting}
-                                                    onClick={() => handleToggleUser(user)}
-                                                    className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
-                                                        user.isActive
-                                                            ? "bg-rose-50 text-rose-600 hover:bg-rose-100"
-                                                            : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
-                                                    } disabled:cursor-not-allowed disabled:opacity-60`}
-                                                >
-                                                        <span className="material-symbols-outlined text-[18px]">
-                                                            {user.isActive ? "lock" : "lock_open"}
-                                                        </span>
-                                                    {user.isActive ? "Khóa" : "Mở khóa"}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    disabled={submitting}
-                                                    onClick={() => handleDeleteUser(user)}
-                                                    className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
-                                                >
-                                                    <span className="material-symbols-outlined text-[18px]">delete</span>
-                                                    Xóa
-                                                </button>
+                                        <td className="relative px-5 py-4">
+                                            <div className="flex justify-end">
+                                                <div className="relative" ref={openActionMenuId === user._id ? actionMenuRef : null}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            toggleActionMenu(user._id);
+                                                        }}
+                                                        className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[22px]">more_vert</span>
+                                                    </button>
+
+                                                    {openActionMenuId === user._id ? (
+                                                        <div
+                                                            className="absolute right-0 top-full z-50 mt-2 w-52 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"
+                                                            onMouseDown={(e) => e.stopPropagation()}
+                                                        >
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    handleOpenEditModal(user);
+                                                                    setOpenActionMenuId(null);
+                                                                }}
+                                                                className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium text-slate-700 transition hover:bg-amber-50"
+                                                            >
+                                                                <span className="material-symbols-outlined text-[20px]">edit</span>
+                                                                Sửa
+                                                            </button>
+
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    handleToggleUser(user);
+                                                                    setOpenActionMenuId(null);
+                                                                }}
+                                                                className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition ${
+                                                                    user.isActive
+                                                                        ? "text-rose-600 hover:bg-rose-50"
+                                                                        : "text-emerald-600 hover:bg-emerald-50"
+                                                                }`}
+                                                            >
+                        <span className="material-symbols-outlined text-[20px]">
+                            {user.isActive ? "lock" : "lock_open"}
+                        </span>
+                                                                {user.isActive ? "Khóa" : "Mở khóa"}
+                                                            </button>
+
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    handleDeleteUser(user);
+                                                                    setOpenActionMenuId(null);
+                                                                }}
+                                                                className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                                                            >
+                                                                <span className="material-symbols-outlined text-[20px]">delete</span>
+                                                                Xóa
+                                                            </button>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
                                             </div>
                                         </td>
                                     </tr>
@@ -672,6 +810,144 @@ export function UserManagementClient() {
                                 className="rounded-2xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 {submitting ? "Đang tạo..." : "Tạo tài khoản"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            {showEditModal ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
+                    <div className="w-full max-w-2xl rounded-[28px] bg-white p-6 shadow-2xl">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-900">Chỉnh sửa người dùng</h2>
+                                <p className="mt-1 text-sm text-slate-500">
+                                    Cập nhật thông tin tài khoản, vai trò và trạng thái hoạt động.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowEditModal(false)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition hover:bg-slate-200"
+                            >
+                                <span className="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+
+                        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <div className="space-y-2 md:col-span-2">
+                                <label className="text-sm font-semibold text-slate-700">Họ và tên</label>
+                                <input
+                                    value={editForm.name}
+                                    onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">Email</label>
+                                <input
+                                    value={editForm.email}
+                                    onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
+                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">Vai trò</label>
+                                <select
+                                    value={editForm.role}
+                                    onChange={(e) =>
+                                        setEditForm((prev) => ({
+                                            ...prev,
+                                            role: e.target.value as UserRole,
+                                        }))
+                                    }
+                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                >
+                                    <option value="User">Sinh viên</option>
+                                    <option value="teacher">Giảng viên</option>
+                                    <option value="admin">Quản trị viên</option>
+                                </select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">Mã sinh viên</label>
+                                <input
+                                    value={editForm.studentCode}
+                                    onChange={(e) =>
+                                        setEditForm((prev) => ({
+                                            ...prev,
+                                            studentCode: e.target.value.toUpperCase(),
+                                        }))
+                                    }
+                                    disabled={editForm.role !== "User"}
+                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100 disabled:bg-slate-100"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">Khoa/Bộ môn</label>
+                                <input
+                                    value={editForm.department}
+                                    onChange={(e) => setEditForm((prev) => ({ ...prev, department: e.target.value }))}
+                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">Khóa/Lớp</label>
+                                <input
+                                    value={editForm.cohort}
+                                    onChange={(e) => setEditForm((prev) => ({ ...prev, cohort: e.target.value }))}
+                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">Mật khẩu mới</label>
+                                <input
+                                    type="password"
+                                    value={editForm.password}
+                                    onChange={(e) => setEditForm((prev) => ({ ...prev, password: e.target.value }))}
+                                    placeholder="Để trống nếu không đổi"
+                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-slate-700">Trạng thái</label>
+                                <select
+                                    value={editForm.isActive ? "active" : "locked"}
+                                    onChange={(e) =>
+                                        setEditForm((prev) => ({
+                                            ...prev,
+                                            isActive: e.target.value === "active",
+                                        }))
+                                    }
+                                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                >
+                                    <option value="active">Đang hoạt động</option>
+                                    <option value="locked">Tạm khóa</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setShowEditModal(false)}
+                                className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                type="button"
+                                disabled={submitting}
+                                onClick={handleUpdateuser}
+                                className="rounded-2xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {submitting ? "Đang lưu..." : "Lưu thay đổi"}
                             </button>
                         </div>
                     </div>

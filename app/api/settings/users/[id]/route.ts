@@ -20,7 +20,7 @@ function  ensureCanmanage(request: Request){
     const currentUser = getCurrentUserFromRequest(request);
 
     if (!currentUser?.userId) {
-        throw Error("bạn chưa đăng nhập")
+        throw Error("bạn chưa đăng nhập hặc tài khoản đã bị tạm khóa")
     }
 
     if (!["admin", "teacher"].includes(currentUser.role)) {
