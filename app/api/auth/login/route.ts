@@ -30,6 +30,14 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // chặn user khi bị khóa
+        if (user.isActive === false) {
+            return NextResponse.json(
+                {message : "tài khoản bị tạm khóa"},
+                {status : 403}
+            )
+        }
+
         const isPasswordMatched = await bcrypt.compare(password, user.password);
 
         if (!isPasswordMatched) {
