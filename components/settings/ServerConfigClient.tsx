@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
 import { pageInfo, sidebarGroups, versionInfo } from "@/lib/server-config-data";
 
 type ServerConfigValue = {
@@ -255,13 +254,6 @@ export function ServerConfigClient() {
     if (loading) {
         return (
             <div className="flex min-h-screen overflow-hidden">
-                <SettingsSidebar
-                    groups={sidebarGroups}
-                    versionInfo={{
-                        ...versionInfo,
-                        updatedAt: versionInfo.updatedAt,
-                    }}
-                />
                 <main className="flex-1 p-8">
                     <div className="mx-auto max-w-5xl space-y-6">
                         <div className="h-24 animate-pulse rounded-3xl bg-white shadow-sm" />
@@ -278,22 +270,12 @@ export function ServerConfigClient() {
 
     return (
         <div className="flex min-h-screen overflow-hidden">
-            <SettingsSidebar
-                groups={sidebarGroups}
-                versionInfo={{
-                    ...versionInfo,
-                    updatedAt: `Cập nhật: ${formatUpdatedAt(form.updatedAt)}`,
-                }}
-            />
 
             <main className="flex-1 overflow-y-auto p-8">
                 <div className="mx-auto max-w-5xl space-y-8">
                     <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
                         <h1 className="text-3xl font-bold tracking-tight text-slate-900">{pageInfo.title}</h1>
                         <p className="mt-2 text-slate-500">{pageInfo.description}</p>
-                        <p className="mt-3 text-sm text-slate-400">
-                            Cấu hình email sẽ được dùng để gửi thông báo bài tập mới, bài sắp đến hạn và bài đã đến hạn nộp cho sinh viên.
-                        </p>
                     </div>
 
                     <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
@@ -571,70 +553,88 @@ export function ServerConfigClient() {
                                         </label>
                                     </div>
 
-                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                    <div className="grid grid-cols-1 gap-4">
                                         <div className="rounded-2xl bg-white px-4 py-4 shadow-sm">
-                                            <div className="flex items-center justify-between gap-4">
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-800">Bài tập mới</p>
-                                                    <p className="mt-1 text-xs text-slate-500">Gửi ngay khi giáo viên tạo hoặc công bố bài tập</p>
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="whitespace-nowrap text-sm font-semibold text-slate-800">
+                                                        Bài tập mới
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-slate-500">
+                                                        Gửi ngay khi giáo viên tạo hoặc công bố bài tập
+                                                    </p>
                                                 </div>
-                                                <Toggle
-                                                    checked={form.email.notifyOnNewAssignment}
-                                                    onChange={(value) =>
-                                                        setForm((prev) => ({
-                                                            ...prev,
-                                                            email: {
-                                                                ...prev.email,
-                                                                notifyOnNewAssignment: value,
-                                                            },
-                                                        }))
-                                                    }
-                                                    label="Thông báo bài tập mới"
-                                                />
+                                                <div className="shrink-0">
+                                                    <Toggle
+                                                        checked={form.email.notifyOnNewAssignment}
+                                                        onChange={(value) =>
+                                                            setForm((prev) => ({
+                                                                ...prev,
+                                                                email: {
+                                                                    ...prev.email,
+                                                                    notifyOnNewAssignment: value,
+                                                                },
+                                                            }))
+                                                        }
+                                                        label="Thông báo bài tập mới"
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
 
                                         <div className="rounded-2xl bg-white px-4 py-4 shadow-sm">
-                                            <div className="flex items-center justify-between gap-4">
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-800">Sắp đến hạn</p>
-                                                    <p className="mt-1 text-xs text-slate-500">Nhắc sinh viên chưa nộp trước hạn</p>
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="whitespace-nowrap text-sm font-semibold text-slate-800">
+                                                        Sắp đến hạn
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-slate-500">
+                                                        Nhắc sinh viên chưa nộp trước hạn
+                                                    </p>
                                                 </div>
-                                                <Toggle
-                                                    checked={form.email.notifyBeforeDue}
-                                                    onChange={(value) =>
-                                                        setForm((prev) => ({
-                                                            ...prev,
-                                                            email: {
-                                                                ...prev.email,
-                                                                notifyBeforeDue: value,
-                                                            },
-                                                        }))
-                                                    }
-                                                    label="Nhắc trước hạn"
-                                                />
+                                                <div className="shrink-0">
+                                                    <Toggle
+                                                        checked={form.email.notifyBeforeDue}
+                                                        onChange={(value) =>
+                                                            setForm((prev) => ({
+                                                                ...prev,
+                                                                email: {
+                                                                    ...prev.email,
+                                                                    notifyBeforeDue: value,
+                                                                },
+                                                            }))
+                                                        }
+                                                        label="Nhắc trước hạn"
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
 
                                         <div className="rounded-2xl bg-white px-4 py-4 shadow-sm">
-                                            <div className="flex items-center justify-between gap-4">
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-800">Đến hạn nộp</p>
-                                                    <p className="mt-1 text-xs text-slate-500">Gửi khi bài tập vừa đến hạn nộp</p>
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="whitespace-nowrap text-sm font-semibold text-slate-800">
+                                                        Đến hạn nộp
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-slate-500">
+                                                        Gửi khi bài tập vừa đến hạn nộp
+                                                    </p>
                                                 </div>
-                                                <Toggle
-                                                    checked={form.email.notifyAtDue}
-                                                    onChange={(value) =>
-                                                        setForm((prev) => ({
-                                                            ...prev,
-                                                            email: {
-                                                                ...prev.email,
-                                                                notifyAtDue: value,
-                                                            },
-                                                        }))
-                                                    }
-                                                    label="Thông báo khi đến hạn"
-                                                />
+                                                <div className="shrink-0">
+                                                    <Toggle
+                                                        checked={form.email.notifyAtDue}
+                                                        onChange={(value) =>
+                                                            setForm((prev) => ({
+                                                                ...prev,
+                                                                email: {
+                                                                    ...prev.email,
+                                                                    notifyOnDue: value,
+                                                                },
+                                                            }))
+                                                        }
+                                                        label="Thông báo đến hạn"
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -756,10 +756,6 @@ export function ServerConfigClient() {
                                         <option value="dropbox">Dropbox</option>
                                         <option value="local">Lưu cục bộ</option>
                                     </select>
-                                </div>
-
-                                <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
-                                    Phần sao lưu ở đây đã lưu được cấu hình. Nếu bạn muốn mình làm tiếp tác vụ backup tự động ra file zip hoặc đồng bộ Google Drive, mình nối thêm cho bạn ở bước sau.
                                 </div>
                             </div>
                         </section>

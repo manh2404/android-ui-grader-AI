@@ -34,6 +34,17 @@ export const sidebarGroups: SettingsSidebarGroup[] = [
                 href: "/ui/server_config",
                 matchMode: "exact",
             },
+            {
+                label: "Tạo bài",
+                href: "/ui/server_config/create_assignment",
+                icon: "edit_note",
+            },
+            {
+                label: "Báo cáo",
+                href: "/ui/server_config/learning_reports",
+                icon: "bar_chart",
+            },
+
         ],
     },
 ];

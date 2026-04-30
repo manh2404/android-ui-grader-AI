@@ -400,14 +400,6 @@ export function UserManagementClient() {
     }, []);
     return (
         <div className="flex min-h-screen gap-6 overflow-hidden">
-            <SettingsSidebar
-                groups={sidebarGroups}
-                versionInfo={{
-                    ...versionInfo,
-                    updatedAt: "Cập nhật: vừa xong",
-                }}
-            />
-
             <main className="min-w-0 flex-1 space-y-6">
                 <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

@@ -451,7 +451,7 @@ export default function LearningReportPage() {
                     <p className="text-sm font-semibold text-orange-700">Gợi ý sử dụng</p>
                     <p className="mt-2 text-sm text-slate-600">
                         Chọn lớp hoặc bài tập để lọc báo cáo theo đúng phạm vi. Hệ thống sẽ tải số liệu trước,
-                        sau đó AI mới phân tích để giao diện vẫn mượt.
+                        sau đó AI mới phân tích
                     </p>
                 </div>
             </section>
@@ -519,7 +519,7 @@ export default function LearningReportPage() {
                                         ) : null}
                                     </div>
                                     <p className="mt-2 text-sm text-slate-500">
-                                        Tóm tắt xu hướng, cảnh báo bất thường và gợi ý hành động cho giáo viên.
+                                        Tóm tắt xu hướng, cảnh báo bất thường
                                     </p>
                                     <p className="mt-1 text-xs text-slate-400">
                                         {aiData

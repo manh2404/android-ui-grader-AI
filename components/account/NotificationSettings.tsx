@@ -27,7 +27,6 @@ export function NotificationSettings({ value, loading = false, onChange }: Props
             <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                     <h2 className="text-lg font-bold text-slate-900">Cài đặt thông báo</h2>
-                    <p className="text-sm text-slate-500">Các thay đổi được lưu ngay khi bạn bật hoặc tắt.</p>
                 </div>
 
                 {loading && <span className="text-xs font-medium text-orange-600">Đang lưu...</span>}
