@@ -1,17 +1,38 @@
+export type SettingsSidebarMatchMode = "exact" | "prefix";
+
+export type SettingsSidebarItem = {
+    label: string;
+    icon: string;
+    href?: string;
+    matchMode?: SettingsSidebarMatchMode;
+};
+
+export type SettingsSidebarGroup = {
+    title: string;
+    items: SettingsSidebarItem[];
+};
+
 export const pageInfo = {
     title: "Cấu hình Server Chấm bài",
     description:
         "Thiết lập các thông số kỹ thuật cho các node chấm bài tự động và kết nối API.",
 };
 
-export const sidebarGroups = [
+export const sidebarGroups: SettingsSidebarGroup[] = [
     {
         title: "Hệ thống",
         items: [
             {
+                label: "Quản lý người dùng",
+                icon: "group",
+                href: "/ui/server_config/users",
+                matchMode: "prefix",
+            },
+            {
                 label: "Server Chấm bài",
                 icon: "database",
-                active: true,
+                href: "/ui/server_config",
+                matchMode: "exact",
             },
             {
                 label: "Giới hạn tài nguyên",

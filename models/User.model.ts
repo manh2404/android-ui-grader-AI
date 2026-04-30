@@ -13,6 +13,7 @@ export interface IUser extends Document {
     password: string;
     studentCode?: string;
     role: UserRole;
+    isActive: boolean;
     isVerified: boolean;
     avatar?: string;
     phone?: string;
@@ -72,6 +73,10 @@ const UserSchema = new Schema<IUser>(
             type: String,
             enum: ["admin", "teacher", "User"],
             default: "User",
+        },
+        isActive: {
+            type: Boolean,
+            default: false,
         },
         isVerified: {
             type: Boolean,
