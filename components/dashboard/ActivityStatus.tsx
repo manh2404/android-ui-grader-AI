@@ -19,7 +19,7 @@ export default function ActivityStatus({ status }: ActivityStatusProps) {
 
     return (
         <span
-            className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+            className={`inline-flex min-w-[84px] items-center justify-center whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-bold leading-5 ${
                 map[status] || "bg-slate-100 text-slate-700"
             }`}
         >

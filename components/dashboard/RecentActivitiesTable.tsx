@@ -30,16 +30,16 @@ export default function RecentActivitiesTable({
 
             {activities.length ? (
                 <div className="overflow-x-auto">
-                    <table className="min-w-[760px] w-full text-left">
+                    <table className="w-full min-w-[980px] table-fixed text-left">
                         <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
                         <tr>
-                            <th className="px-6 py-4">Học sinh</th>
-                            <th className="px-6 py-4">Lớp</th>
-                            <th className="px-6 py-4">Bài tập</th>
-                            <th className="px-6 py-4">Điểm</th>
-                            <th className="px-6 py-4">Trạng thái</th>
-                            <th className="px-6 py-4">Thời gian</th>
-                            <th className="px-6 py-4 text-right">Xem</th>
+                            <th className="w-[220px] px-6 py-4">Học sinh</th>
+                            <th className="w-[150px] px-6 py-4">Lớp</th>
+                            <th className="w-[260px] px-6 py-4">Bài tập</th>
+                            <th className="w-[120px] px-6 py-4 text-center">Điểm</th>
+                            <th className="w-[140px] px-6 py-4 text-center">Trạng thái</th>
+                            <th className="w-[130px] px-6 py-4 text-center">Thời gian</th>
+                            <th className="w-[80px] px-6 py-4 text-right">Xem</th>
                         </tr>
                         </thead>
 
@@ -75,7 +75,7 @@ export default function RecentActivitiesTable({
 
                                 <td className="px-6 py-4">
                                         <span
-                                            className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.scoreClassName}`}
+                                            className={`inline-flex min-w-[82px] items-center justify-center whitespace-nowrap rounded-full px-3 py-1 text-xs font-bold leading-5 ${item.scoreClassName}`}
                                         >
                                             {item.score === null
                                                 ? "Chưa có điểm"
