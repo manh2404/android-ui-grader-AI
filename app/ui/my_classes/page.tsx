@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ClassesHeader } from "@/components/classes/ClassesHeader";
-import { SemesterFilters } from "@/components/classes/SemesterFilters";
-import { ClassesGrid } from "@/components/classes/ClassesGrid";
-import { AddClassCard } from "@/components/classes/AddClassCard";
+import { ClassesHeader } from "@/components/my_classes/ClassesHeader";
+import { SemesterFilters } from "@/components/my_classes/SemesterFilters";
+import { ClassesGrid } from "@/components/my_classes/ClassesGrid";
+import { AddClassCard } from "@/components/my_classes/AddClassCard";
 import { Classroom } from "@/app/ui/my_classes/type/classroom.type";
 
 type CreateClassPayload = {
