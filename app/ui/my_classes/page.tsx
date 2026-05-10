@@ -6,7 +6,7 @@ import { SemesterFilters } from "@/components/my_classes/SemesterFilters";
 import { ClassesGrid } from "@/components/my_classes/ClassesGrid";
 import { AddClassCard } from "@/components/my_classes/AddClassCard";
 import { Classroom } from "@/app/ui/my_classes/type/classroom.type";
-
+import { JoinClassDialog } from "@/components/my_classes/JoinClassDialog";
 type CreateClassPayload = {
     name: string;
     code: string;
@@ -213,10 +213,15 @@ export default function MyClassesPage() {
             );
         });
     }, [classes, semesterFilter, search]);
-
+    const [openJoin, setOpenJoin] = useState(false);
     return (
         <div className="space-y-6">
-            <ClassesHeader total={filteredClasses.length} />
+            <ClassesHeader total={filteredClasses.length}
+                           onJoin={
+                               !loadingUser && currentUser && !canManageClassUI
+                                   ? () => setOpenJoin(true)
+                                   : undefined
+                           }/>
 
             <SemesterFilters
                 value={semesterFilter}
@@ -256,6 +261,11 @@ export default function MyClassesPage() {
                 onUpdate={handleUpdateClass}
                 onRefresh={fetchClasses}
                 canManageClassUI={canManageClassUI}
+            />
+            <JoinClassDialog
+                open={openJoin}
+                onClose={() => setOpenJoin(false)}
+                onSuccess={fetchClasses}
             />
         </div>
     );
