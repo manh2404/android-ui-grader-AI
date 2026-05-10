@@ -1,8 +1,6 @@
 "use client";
 
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
-import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
-import { sidebarGroups, versionInfo } from "@/lib/server-config-data";
 
 type UserRole = "admin" | "teacher" | "User";
 type UserStatus = "all" | "active" | "locked";
