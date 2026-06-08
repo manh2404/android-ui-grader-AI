@@ -12,6 +12,18 @@ type SourceArchive = {
     storedName?: string | null;
     originalName?: string | null;
 } | null | undefined;
+const DEFAULT_AVD_NAME = process.env.ANDROID_AVD_NAME || "Pixel_6";
+
+type EmulatorStartResult = {
+    ok: boolean;
+    started: boolean;
+    message: string;
+    stdout: string;
+    stderr: string;
+};
+
+let emulatorReadyCache = false;
+let emulatorStartingPromise: Promise<EmulatorStartResult> | null = null;
 type AssignmentAttachment = {
     kind?: string;
     url?: string;
@@ -75,7 +87,6 @@ function runText(
     });
 }
 
-
 function runTextLive(
     cmd: string,
     args: string[],
@@ -100,8 +111,6 @@ function runTextLive(
             if (finished) return;
 
             finished = true;
-            console.log("[RUN-LIVE] timeout, killing process", { cmd, args });
-
             child.kill("SIGKILL");
 
             resolve({
@@ -128,8 +137,6 @@ function runTextLive(
 
             finished = true;
             clearTimeout(timer);
-
-            console.log("[RUN-LIVE] error", error.message);
 
             resolve({
                 ok: false,
@@ -193,6 +200,8 @@ async function walk(dir: string): Promise<string[]> {
         const fullPath = path.join(dir, entry.name);
 
         if (entry.isDirectory()) {
+            // Không quét sâu các thư mục build/cache nặng nếu có trong bài nộp.
+            if ([".gradle", "build", ".idea"].includes(entry.name)) continue;
             results.push(...await walk(fullPath));
         } else {
             results.push(fullPath);
@@ -214,9 +223,23 @@ async function findAndroidProjectRoot(tempDir: string) {
 }
 
 async function findDebugApk(projectRoot: string) {
-    const files = await walk(projectRoot);
+    const allFiles: string[] = [];
 
-    return files.find((file) => {
+    async function scan(dir: string) {
+        const entries = await fsp.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                await scan(fullPath);
+            } else {
+                allFiles.push(fullPath);
+            }
+        }
+    }
+
+    await scan(projectRoot);
+
+    return allFiles.find((file) => {
         const lower = file.replace(/\\/g, "/").toLowerCase();
         return lower.endsWith(".apk") && lower.includes("/build/outputs/apk/debug/");
     }) || null;
@@ -258,18 +281,11 @@ async function readPackageName(projectRoot: string) {
 
     return null;
 }
-// hàm kiê tra lệnh
+
 async function commandExists(command: string) {
     const check = process.platform === "win32"
         ? await runText("where", [command], undefined, 10_000)
         : await runText("which", [command], undefined, 10_000);
-
-    console.log("[RUNTIME-CMD] commandExists", {
-        command,
-        ok: check.ok,
-        stdout: check.stdout.trim(),
-        stderr: check.stderr.trim(),
-    });
 
     return check.ok && check.stdout.trim().length > 0;
 }
@@ -288,7 +304,7 @@ function findWindowsGradleExecutable() {
 
     return candidates.find((item) => item && fs.existsSync(item)) || null;
 }
-// hàm đọc phien bản android
+
 async function detectAndroidGradlePluginVersion(projectRoot: string) {
     const candidates = [
         path.join(projectRoot, "build.gradle.kts"),
@@ -311,30 +327,18 @@ async function detectAndroidGradlePluginVersion(projectRoot: string) {
 
         for (const pattern of patterns) {
             const match = text.match(pattern);
-            if (match?.[1]) {
-                return match[1];
-            }
+            if (match?.[1]) return match[1];
         }
     }
 
     return null;
 }
-// hàm chọn gradle version phù hợp
+
 function pickGradleVersionForAgp(agpVersion: string | null) {
-    if (!agpVersion) {
-        return "8.7";
-    }
+    if (!agpVersion) return "8.7";
 
-    const majorMinor = agpVersion
-        .split(".")
-        .slice(0, 2)
-        .join(".");
-
-    const version = Number(majorMinor);
-
-    if (Number.isNaN(version)) {
-        return "8.7";
-    }
+    const version = Number(agpVersion.split(".").slice(0, 2).join("."));
+    if (Number.isNaN(version)) return "8.7";
 
     if (version >= 8.7) return "8.9";
     if (version >= 8.5) return "8.7";
@@ -350,21 +354,9 @@ function pickGradleVersionForAgp(agpVersion: string | null) {
     return "8.7";
 }
 
-// hàm tự sinh gradle wrapper
 async function ensureGradleWrapper(projectRoot: string) {
-    console.log("[RUNTIME-WRAPPER] enter", { projectRoot });
-    console.log("[RUNTIME-WRAPPER] platform =", process.platform);
-    console.log("[RUNTIME-WRAPPER] PATH =", process.env.PATH);
-
     const gradlew = path.join(projectRoot, "gradlew");
     const gradlewBat = path.join(projectRoot, "gradlew.bat");
-
-    console.log("[RUNTIME-WRAPPER] wrapper files", {
-        gradlew,
-        gradlewExists: fs.existsSync(gradlew),
-        gradlewBat,
-        gradlewBatExists: fs.existsSync(gradlewBat),
-    });
 
     if (process.platform === "win32" && fs.existsSync(gradlewBat)) {
         return {
@@ -389,14 +381,10 @@ async function ensureGradleWrapper(projectRoot: string) {
     }
 
     let systemGradleCmd = "gradle";
-
-    console.log("[RUNTIME-WRAPPER] checking gradle command in PATH");
     const hasSystemGradle = await commandExists("gradle");
 
     if (!hasSystemGradle) {
         const fallbackGradle = findWindowsGradleExecutable();
-
-        console.log("[RUNTIME-WRAPPER] fallbackGradle =", fallbackGradle);
 
         if (fallbackGradle) {
             systemGradleCmd = fallbackGradle;
@@ -416,14 +404,6 @@ async function ensureGradleWrapper(projectRoot: string) {
     const agpVersion = await detectAndroidGradlePluginVersion(projectRoot);
     const gradleVersion = pickGradleVersionForAgp(agpVersion);
 
-    console.log("[RUNTIME-WRAPPER] detected versions", {
-        agpVersion,
-        gradleVersion,
-        systemGradleCmd,
-    });
-
-    console.log("[RUNTIME-WRAPPER] run gradle wrapper start");
-
     const wrapperResult = await runTextLive(
         systemGradleCmd,
         [
@@ -433,16 +413,11 @@ async function ensureGradleWrapper(projectRoot: string) {
             "--distribution-type",
             "bin",
             "--no-daemon",
+            "--console=plain",
         ],
         projectRoot,
         600_000
     );
-
-    console.log("[RUNTIME-WRAPPER] run gradle wrapper done", {
-        ok: wrapperResult.ok,
-        stdoutTail: wrapperResult.stdout.slice(-1000),
-        stderrTail: wrapperResult.stderr.slice(-1000),
-    });
 
     if (!wrapperResult.ok) {
         return {
@@ -495,57 +470,351 @@ function findBaselineScreenshot(attachments?: AssignmentAttachment[]) {
         const mime = String(item.mimeType || "").toLowerCase();
         const name = String(item.originalName || "").toLowerCase();
 
-        return (
-            kind === "template" &&
-            (
-                mime.startsWith("image/") ||
-                name.endsWith(".png") ||
-                name.endsWith(".jpg") ||
-                name.endsWith(".jpeg") ||
-                name.endsWith(".webp")
-            )
-        );
+        const isImage =
+            mime.startsWith("image/") ||
+            name.endsWith(".png") ||
+            name.endsWith(".jpg") ||
+            name.endsWith(".jpeg") ||
+            name.endsWith(".webp");
+
+        // Tránh lấy nhầm ảnh đề tổng. Chỉ dùng ảnh UI chuẩn được đặt tên rõ.
+        const isUiBaseline =
+            name.startsWith("ui-") ||
+            name.startsWith("baseline-") ||
+            name.includes("-baseline") ||
+            name.includes("_baseline");
+
+        return kind === "template" && isImage && isUiBaseline;
     });
 
     return image?.url || null;
 }
+
+function resolveEmulatorCommand() {
+    const candidates = [
+        process.env.EMULATOR_PATH,
+        process.env.ANDROID_HOME
+            ? path.join(process.env.ANDROID_HOME, "emulator", process.platform === "win32" ? "emulator.exe" : "emulator")
+            : null,
+        process.env.ANDROID_SDK_ROOT
+            ? path.join(process.env.ANDROID_SDK_ROOT, "emulator", process.platform === "win32" ? "emulator.exe" : "emulator")
+            : null,
+        process.env.LOCALAPPDATA && process.platform === "win32"
+            ? path.join(process.env.LOCALAPPDATA, "Android", "Sdk", "emulator", "emulator.exe")
+            : null,
+        process.platform === "win32" ? "C:\\Users\\a\\AppData\\Local\\Android\\Sdk\\emulator\\emulator.exe" : null,
+    ].filter(Boolean) as string[];
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) return candidate;
+    }
+
+    return "emulator";
+}
+
 function resolveAdbCommand() {
     const candidates = [
         process.env.ADB_PATH,
         process.env.ANDROID_HOME
-            ? path.join(process.env.ANDROID_HOME, "platform-tools", "adb.exe")
+            ? path.join(process.env.ANDROID_HOME, "platform-tools", process.platform === "win32" ? "adb.exe" : "adb")
             : null,
         process.env.ANDROID_SDK_ROOT
-            ? path.join(process.env.ANDROID_SDK_ROOT, "platform-tools", "adb.exe")
+            ? path.join(process.env.ANDROID_SDK_ROOT, "platform-tools", process.platform === "win32" ? "adb.exe" : "adb")
             : null,
-        process.env.LOCALAPPDATA
+        process.env.LOCALAPPDATA && process.platform === "win32"
             ? path.join(process.env.LOCALAPPDATA, "Android", "Sdk", "platform-tools", "adb.exe")
             : null,
+        process.platform === "win32" ? "C:\\Users\\a\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe" : null,
     ].filter(Boolean) as string[];
 
     for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) {
-            return candidate;
-        }
+        if (fs.existsSync(candidate)) return candidate;
     }
 
     return "adb";
 }
+
+async function hasReadyAdbDevice(adbCmd: string, adbSerial?: string) {
+    const args = adbSerial ? ["-s", adbSerial, "devices"] : ["devices"];
+    const result = await runText(adbCmd, args, undefined, 30_000);
+
+    const lines = result.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith("List of devices"));
+
+    const hasDevice = lines.some((line) => /\bdevice$/.test(line));
+
+    return {
+        ok: result.ok && hasDevice,
+        stdout: result.stdout,
+        stderr: result.stderr,
+    };
+}
+
+async function startEmulatorIfNeeded(input: {
+    adbCmd: string;
+    adbSerial?: string;
+    avdName?: string;
+}): Promise<EmulatorStartResult> {
+    // Lần chấm sau: nếu đã xác nhận emulator chạy trước đó, kiểm tra nhanh lại bằng adb.
+    if (emulatorReadyCache) {
+        const cachedCheck = await hasReadyAdbDevice(input.adbCmd, input.adbSerial);
+
+        if (cachedCheck.ok) {
+            return {
+                ok: true,
+                started: false,
+                message: "Emulator/device đã chạy sẵn từ lần chấm trước, dùng lại luôn.",
+                stdout: cachedCheck.stdout,
+                stderr: cachedCheck.stderr,
+            };
+        }
+
+        // Nếu người dùng đã tắt emulator ngoài hệ thống thì bỏ cache.
+        emulatorReadyCache = false;
+    }
+
+    const firstCheck = await hasReadyAdbDevice(input.adbCmd, input.adbSerial);
+
+    if (firstCheck.ok) {
+        emulatorReadyCache = true;
+
+        return {
+            ok: true,
+            started: false,
+            message: "Emulator/device đã chạy sẵn, không cần bật lại.",
+            stdout: firstCheck.stdout,
+            stderr: firstCheck.stderr,
+        };
+    }
+
+    // Nếu đang có một bài khác bật emulator, không spawn thêm emulator mới.
+    if (emulatorStartingPromise) {
+        return emulatorStartingPromise;
+    }
+
+    emulatorStartingPromise = actuallyStartEmulator(input);
+
+    try {
+        const result = await emulatorStartingPromise;
+
+        if (result.ok) {
+            emulatorReadyCache = true;
+        }
+
+        return result;
+    } finally {
+        emulatorStartingPromise = null;
+    }
+}
+
+async function actuallyStartEmulator(input: {
+    adbCmd: string;
+    adbSerial?: string;
+    avdName?: string;
+}): Promise<EmulatorStartResult> {
+    const emulatorCmd = resolveEmulatorCommand();
+    const avdName = input.avdName || DEFAULT_AVD_NAME;
+
+    if (!fs.existsSync(emulatorCmd) && emulatorCmd !== "emulator") {
+        return {
+            ok: false,
+            started: false,
+            message: `Không tìm thấy emulator tại: ${emulatorCmd}`,
+            stdout: "",
+            stderr: "",
+        };
+    }
+
+    const avdList = await runText(emulatorCmd, ["-list-avds"], undefined, 30_000);
+
+    console.log("[RUNTIME-EMULATOR] available AVDs =", avdList.stdout);
+    console.log("[RUNTIME-EMULATOR] selected AVD =", avdName);
+
+    if (
+        !avdList.ok ||
+        !avdList.stdout
+            .split(/\r?\n/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .includes(avdName)
+    ) {
+        return {
+            ok: false,
+            started: false,
+            message:
+                `Không tìm thấy AVD tên "${avdName}".\n\n` +
+                `Danh sách AVD hiện có:\n${avdList.stdout}\n\n` +
+                `Hãy sửa ANDROID_AVD_NAME trong .env.local cho đúng.`,
+            stdout: avdList.stdout,
+            stderr: avdList.stderr,
+        };
+    }
+
+    const emulatorArgs = [
+        "-avd",
+        avdName,
+        "-no-snapshot",
+        "-no-audio",
+        "-no-boot-anim",
+        "-gpu",
+        "swiftshader_indirect",
+    ];
+
+    console.log("[RUNTIME-EMULATOR] starting emulator", {
+        emulatorCmd,
+        emulatorArgs,
+    });
+
+    const child = spawn(emulatorCmd, emulatorArgs, {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: false,
+        env: process.env,
+    });
+
+    let emulatorStdout = "";
+    let emulatorStderr = "";
+
+    child.stdout?.on("data", (data) => {
+        const text = data.toString();
+        emulatorStdout += text;
+        console.log("[RUNTIME-EMULATOR][stdout]", text);
+    });
+
+    child.stderr?.on("data", (data) => {
+        const text = data.toString();
+        emulatorStderr += text;
+        console.log("[RUNTIME-EMULATOR][stderr]", text);
+    });
+
+    child.on("error", (error) => {
+        emulatorStderr += error.message;
+        console.log("[RUNTIME-EMULATOR] spawn error", error.message);
+    });
+
+    child.unref();
+
+    const maxWaitMs = Number(process.env.ANDROID_EMULATOR_WAIT_MS || 300_000);
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+
+        const deviceCheck = await hasReadyAdbDevice(input.adbCmd, input.adbSerial);
+
+        if (deviceCheck.ok) {
+            const bootArgs = input.adbSerial
+                ? ["-s", input.adbSerial, "shell", "getprop", "sys.boot_completed"]
+                : ["shell", "getprop", "sys.boot_completed"];
+
+            const boot = await runText(input.adbCmd, bootArgs, undefined, 30_000);
+
+            if (boot.stdout.trim() === "1") {
+                return {
+                    ok: true,
+                    started: true,
+                    message: `Đã tự bật emulator ${avdName} và emulator đã boot xong.`,
+                    stdout: `${deviceCheck.stdout}\n${emulatorStdout}`,
+                    stderr: `${deviceCheck.stderr}\n${emulatorStderr}`,
+                };
+            }
+
+            console.log("[RUNTIME-EMULATOR] device found, waiting boot_completed...", {
+                boot: boot.stdout.trim(),
+            });
+        } else {
+            console.log("[RUNTIME-EMULATOR] waiting emulator device...");
+        }
+    }
+
+    const finalCheck = await hasReadyAdbDevice(input.adbCmd, input.adbSerial);
+
+    return {
+        ok: false,
+        started: true,
+        message: `Đã thử bật emulator ${avdName} nhưng emulator chưa sẵn sàng sau ${maxWaitMs / 1000} giây.`,
+        stdout: `${finalCheck.stdout}\n${emulatorStdout}`,
+        stderr: `${finalCheck.stderr}\n${emulatorStderr}`,
+    };
+}
+
+function compactLog(stdout: string, stderr: string, limit = 30000) {
+    const fullLog = `${stdout}\n${stderr}`;
+
+    if (fullLog.length <= limit) return fullLog;
+
+    const half = Math.floor(limit / 2);
+    return fullLog.slice(0, half) +
+        "\n\n... LOG ĐÃ BỊ RÚT GỌN Ở GIỮA ...\n\n" +
+        fullLog.slice(-half);
+}
+
+async function captureScreenshot(input: {
+    adbCmd: string;
+    adbBase: string[];
+    outputDir: string;
+    packageName: string;
+}) {
+    // Chờ app qua splash screen và Compose render xong.
+    await new Promise((resolve) => setTimeout(resolve, 8000));
+
+    let finalScreenshotBuffer: Buffer | null = null;
+    let lastScreenshotError = "";
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        const capture = await runBinary(
+            input.adbCmd,
+            [...input.adbBase, "exec-out", "screencap", "-p"],
+            undefined,
+            30_000
+        );
+
+        if (capture.ok && capture.stdout.length > 0) {
+            finalScreenshotBuffer = capture.stdout;
+        } else {
+            lastScreenshotError = capture.stderr;
+        }
+
+        if (attempt < 3) {
+            await new Promise((resolve) => setTimeout(resolve, 2500));
+        }
+    }
+
+    if (!finalScreenshotBuffer || finalScreenshotBuffer.length === 0) {
+        return {
+            ok: false as const,
+            error: lastScreenshotError || "Không nhận được dữ liệu ảnh từ adb screencap.",
+            path: "",
+            url: "",
+        };
+    }
+
+    const safePackage = input.packageName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const screenshotName = `${Date.now()}-${safePackage}-home.png`;
+    const screenshotPath = path.join(input.outputDir, screenshotName);
+    const screenshotUrl = `/uploads/runner-artifacts/${screenshotName}`;
+
+    await fsp.writeFile(screenshotPath, finalScreenshotBuffer);
+
+    return {
+        ok: true as const,
+        path: screenshotPath,
+        url: screenshotUrl,
+        error: "",
+    };
+}
+
 export async function runAndroidProjectRuntime(input: {
     sourceArchive: SourceArchive;
     assignmentAttachments?: AssignmentAttachment[];
     adbSerial?: string;
 }): Promise<RunnerReportInput> {
-    console.log("[RUNTIME-STEP] 01 enter runAndroidProjectRuntime");
-    console.time("[RUNTIME-TIME] total");
-
     const checks: RunnerCheck[] = [];
     const logs: Array<{ label: string; content: string }> = [];
 
-    console.log("[RUNTIME-STEP] 02 resolve archive path");
     const archivePath = archiveToAbsolutePath(input.sourceArchive);
-    console.log("[RUNTIME-STEP] 03 archivePath =", archivePath);
-    console.log("[RUNTIME-STEP] 04 archive exists =", archivePath ? fs.existsSync(archivePath) : false);
 
     if (!archivePath || !fs.existsSync(archivePath)) {
         return {
@@ -569,14 +838,9 @@ export async function runAndroidProjectRuntime(input: {
     await fsp.mkdir(outputDir, { recursive: true });
 
     try {
-        console.log("[RUNTIME-STEP] 05 start unzip", { archivePath, tempDir });
         const zip = new AdmZip(archivePath);
         zip.extractAllTo(tempDir, true);
-        console.log("[RUNTIME-STEP] 06 unzip done");
-
-        console.log("[RUNTIME-STEP] 07 find Android project root");
         const projectRoot = await findAndroidProjectRoot(tempDir);
-        console.log("[RUNTIME-STEP] 08 projectRoot =", projectRoot);
 
         if (!projectRoot) {
             return {
@@ -605,15 +869,7 @@ export async function runAndroidProjectRuntime(input: {
             })
         );
 
-        console.log("[RUNTIME-STEP] 09 ensure Gradle wrapper start");
         const wrapper = await ensureGradleWrapper(projectRoot);
-        console.log("[RUNTIME-STEP] 10 ensure Gradle wrapper result =", {
-            ok: wrapper.ok,
-            generated: wrapper.generated,
-            message: wrapper.message,
-            cmd: wrapper.cmd,
-            argsPrefix: wrapper.argsPrefix,
-        });
 
         if (!wrapper.ok) {
             checks.push(
@@ -637,8 +893,7 @@ export async function runAndroidProjectRuntime(input: {
                 visualSimilarity: null,
                 checks,
                 logs,
-                rawSummary:
-                    "Bài không chạy được vì thiếu Gradle Wrapper và máy runner chưa tự sinh được wrapper.",
+                rawSummary: "Bài không chạy được vì thiếu Gradle Wrapper và máy runner chưa tự sinh được wrapper.",
             };
         }
 
@@ -651,17 +906,6 @@ export async function runAndroidProjectRuntime(input: {
             })
         );
 
-        console.log("[RUNTIME-STEP] 11 build APK start", {
-            cmd: wrapper.cmd,
-            args: [
-                ...wrapper.argsPrefix,
-                ":app:assembleDebug",
-                "--no-daemon",
-                "--stacktrace",
-            ],
-            projectRoot,
-        });
-
         const build = await runTextLive(
             wrapper.cmd,
             [
@@ -669,22 +913,44 @@ export async function runAndroidProjectRuntime(input: {
                 ":app:assembleDebug",
                 "--no-daemon",
                 "--stacktrace",
+                "--console=plain",
+                "--info",
             ],
             projectRoot,
             900_000
         );
 
-        console.log("[RUNTIME-STEP] 12 build APK done", {
-            ok: build.ok,
-            stdoutTail: build.stdout.slice(-1000),
-            stderrTail: build.stderr.slice(-1000),
-        });
+        const fullBuildLog = `${build.stdout}\n${build.stderr}`;
+
+        const importantLines = fullBuildLog
+            .split(/\r?\n/)
+            .filter((line) => {
+                const lower = line.toLowerCase();
+
+                return (
+                    line.startsWith("e:") ||
+                    line.startsWith("w:") ||
+                    lower.includes("error:") ||
+                    lower.includes("unresolved reference") ||
+                    lower.includes("type mismatch") ||
+                    lower.includes("compilation error") ||
+                    lower.includes("failed") ||
+                    lower.includes("exception")
+                );
+            })
+            .join("\n");
 
         logs.push({
             label: "Gradle build log",
-            content: `${build.stdout}\n${build.stderr}`.slice(-12000),
+            content:
+                importantLines.trim().length > 0
+                    ? importantLines
+                    : fullBuildLog.length > 30000
+                        ? fullBuildLog.slice(0, 12000) +
+                        "\n\n... LOG ĐÃ BỊ RÚT GỌN Ở GIỮA ...\n\n" +
+                        fullBuildLog.slice(-12000)
+                        : fullBuildLog,
         });
-
         if (!build.ok) {
             checks.push(
                 makeCheck({
@@ -714,9 +980,7 @@ export async function runAndroidProjectRuntime(input: {
             })
         );
 
-        console.log("[RUNTIME-STEP] 13 find debug APK");
         const apkPath = await findDebugApk(projectRoot);
-        console.log("[RUNTIME-STEP] 14 apkPath =", apkPath);
 
         if (!apkPath) {
             return {
@@ -737,9 +1001,7 @@ export async function runAndroidProjectRuntime(input: {
             };
         }
 
-        console.log("[RUNTIME-STEP] 15 read package name");
         const packageName = await readPackageName(projectRoot);
-        console.log("[RUNTIME-STEP] 16 packageName =", packageName);
 
         if (!packageName) {
             return {
@@ -761,10 +1023,55 @@ export async function runAndroidProjectRuntime(input: {
             };
         }
 
+        // Chỉ bật emulator sau khi build APK thành công để tránh máy yếu bị treo.
         const adbCmd = resolveAdbCommand();
         const adbBase = input.adbSerial ? ["-s", input.adbSerial] : [];
-        console.log("[RUNTIME-STEP] adbCmd =", adbCmd);
-        console.log("[RUNTIME-STEP] adbCmd =", adbCmd);
+
+        const emulatorReady = await startEmulatorIfNeeded({
+            adbCmd,
+            adbSerial: input.adbSerial,
+            avdName: DEFAULT_AVD_NAME,
+        });
+
+        logs.push({
+            label: "Emulator startup log",
+            content:
+                emulatorReady.message +
+                "\n\nstdout:\n" +
+                emulatorReady.stdout +
+                "\n\nstderr:\n" +
+                emulatorReady.stderr,
+        });
+
+        if (!emulatorReady.ok) {
+            return {
+                runtimeStatus: "install_failed",
+                buildPassed: true,
+                testPassed: false,
+                apkPath,
+                packageName,
+                checks: [
+                    ...checks,
+                    makeCheck({
+                        code: "emulator_start",
+                        label: "Tự bật emulator",
+                        status: "failed",
+                        message: emulatorReady.message,
+                    }),
+                ],
+                logs,
+                rawSummary: "Build APK thành công nhưng hệ thống không tự bật được emulator.",
+            };
+        }
+
+        checks.push(
+            makeCheck({
+                code: "emulator_start",
+                label: "Tự bật emulator",
+                status: "passed",
+                message: emulatorReady.message,
+            })
+        );
 
         const devices = await runText(adbCmd, ["devices"], undefined, 30_000);
 
@@ -786,8 +1093,7 @@ export async function runAndroidProjectRuntime(input: {
                         code: "adb_command",
                         label: "ADB command",
                         status: "failed",
-                        message:
-                            "Build APK thành công nhưng máy runner không tìm thấy adb. Cần cài Android SDK Platform-Tools hoặc cấu hình ADB_PATH.",
+                        message: "Build APK thành công nhưng máy runner không tìm thấy adb. Cần cài Android SDK Platform-Tools hoặc cấu hình ADB_PATH.",
                     }),
                 ],
                 logs,
@@ -795,7 +1101,14 @@ export async function runAndroidProjectRuntime(input: {
             };
         }
 
-        if (!devices.stdout.includes("\tdevice") && !devices.stdout.includes(" device")) {
+        const deviceLines = devices.stdout
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter((line) => line && !line.startsWith("List of devices"));
+
+        const hasReadyDevice = deviceLines.some((line) => /\bdevice$/.test(line));
+
+        if (!hasReadyDevice) {
             return {
                 runtimeStatus: "install_failed",
                 buildPassed: true,
@@ -808,8 +1121,7 @@ export async function runAndroidProjectRuntime(input: {
                         code: "adb_device",
                         label: "Emulator/device",
                         status: "failed",
-                        message:
-                            "Build APK thành công nhưng chưa có emulator/device Android đang chạy.",
+                        message: "Build APK thành công nhưng chưa có emulator/device Android đang chạy.",
                     }),
                 ],
                 logs,
@@ -826,22 +1138,16 @@ export async function runAndroidProjectRuntime(input: {
             })
         );
 
-        console.log("[RUNTIME-STEP] 19 adb install start");
         const install = await runTextLive(
             adbCmd,
             [...adbBase, "install", "-r", apkPath],
             undefined,
             180_000
         );
-        console.log("[RUNTIME-STEP] 20 adb install done", {
-            ok: install.ok,
-            stdoutTail: install.stdout.slice(-1000),
-            stderrTail: install.stderr.slice(-1000),
-        });
 
         logs.push({
             label: "ADB install log",
-            content: `${install.stdout}\n${install.stderr}`.slice(-12000),
+            content: compactLog(install.stdout, install.stderr, 12000),
         });
 
         if (!install.ok) {
@@ -874,22 +1180,16 @@ export async function runAndroidProjectRuntime(input: {
             })
         );
 
-        console.log("[RUNTIME-STEP] 21 app launch start");
         const launch = await runTextLive(
             adbCmd,
             [...adbBase, "shell", "monkey", "-p", packageName, "-c", "android.intent.category.LAUNCHER", "1"],
             undefined,
             30_000
         );
-        console.log("[RUNTIME-STEP] 22 app launch done", {
-            ok: launch.ok,
-            stdoutTail: launch.stdout.slice(-1000),
-            stderrTail: launch.stderr.slice(-1000),
-        });
 
         logs.push({
             label: "ADB launch log",
-            content: `${launch.stdout}\n${launch.stderr}`.slice(-12000),
+            content: compactLog(launch.stdout, launch.stderr, 12000),
         });
 
         if (!launch.ok) {
@@ -922,27 +1222,14 @@ export async function runAndroidProjectRuntime(input: {
             })
         );
 
-        await new Promise((resolve) => setTimeout(resolve, 7000));
-
-        const safePackage = packageName.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const screenshotName = `${Date.now()}-${safePackage}-home.png`;
-        const screenshotPath = path.join(outputDir, screenshotName);
-        const screenshotUrl = `/uploads/runner-artifacts/${screenshotName}`;
-
-        console.log("[RUNTIME-STEP] 23 screenshot start");
-        const screencap = await runBinary(
+        const screenshot = await captureScreenshot({
             adbCmd,
-            [...adbBase, "exec-out", "screencap", "-p"],
-            undefined,
-            30_000
-        );
-        console.log("[RUNTIME-STEP] 24 screenshot done", {
-            ok: screencap.ok,
-            size: screencap.stdout.length,
-            stderr: screencap.stderr,
+            adbBase,
+            outputDir,
+            packageName,
         });
 
-        if (!screencap.ok || screencap.stdout.length === 0) {
+        if (!screenshot.ok) {
             return {
                 runtimeStatus: "screenshot_failed",
                 buildPassed: true,
@@ -958,12 +1245,16 @@ export async function runAndroidProjectRuntime(input: {
                         message: "App mở được nhưng không chụp được screenshot.",
                     }),
                 ],
-                logs,
+                logs: [
+                    ...logs,
+                    {
+                        label: "Screenshot log",
+                        content: screenshot.error,
+                    },
+                ],
                 rawSummary: "Không chụp được screenshot từ emulator.",
             };
         }
-
-        await fsp.writeFile(screenshotPath, screencap.stdout);
 
         checks.push(
             makeCheck({
@@ -971,15 +1262,15 @@ export async function runAndroidProjectRuntime(input: {
                 label: "Chụp giao diện thật",
                 status: "passed",
                 message: "Đã chụp được giao diện thật từ emulator.",
-                evidence: [screenshotUrl],
+                evidence: [screenshot.url],
             })
         );
 
         const baselineUrl = findBaselineScreenshot(input.assignmentAttachments);
 
         const visualComparison = await compareStudentScreenshotWithBaseline({
-            studentScreenshotPath: screenshotPath,
-            studentScreenshotUrl: screenshotUrl,
+            studentScreenshotPath: screenshot.path,
+            studentScreenshotUrl: screenshot.url,
             baselineUrl,
             outputDir,
         });
@@ -1004,7 +1295,7 @@ export async function runAndroidProjectRuntime(input: {
                     code: "visual_compare",
                     label: "So sánh với giao diện chuẩn",
                     status: "not_run",
-                    message: "Giáo viên chưa upload ảnh giao diện chuẩn loại template nên chưa so sánh được.",
+                    message: "Giáo viên chưa upload ảnh giao diện chuẩn loại template có tên ui-* hoặc baseline-* nên chưa so sánh được.",
                 })
             );
         }
@@ -1022,8 +1313,8 @@ export async function runAndroidProjectRuntime(input: {
             screenshots: [
                 {
                     label: "Giao diện thật của sinh viên",
-                    path: screenshotPath,
-                    url: screenshotUrl,
+                    path: screenshot.path,
+                    url: screenshot.url,
                     mimeType: "image/png",
                 },
             ],
@@ -1038,7 +1329,7 @@ export async function runAndroidProjectRuntime(input: {
                 : [],
             rawSummary: visualComparison
                 ? `Bài chạy được. Độ giống giao diện với ảnh chuẩn: ${visualComparison.similarity}%.`
-                : "Bài chạy được và đã sinh screenshot thật, nhưng chưa có ảnh chuẩn để so sánh.",
+                : "Bài chạy được và đã sinh screenshot thật, nhưng chưa có ảnh chuẩn UI riêng để so sánh.",
         };
     } catch (error) {
         return {
@@ -1057,7 +1348,6 @@ export async function runAndroidProjectRuntime(input: {
             rawSummary: error instanceof Error ? error.message : "Runtime runner exception.",
         };
     } finally {
-        console.log("[RUNTIME-STEP] cleanup tempDir", tempDir);
         await fsp.rm(tempDir, { recursive: true, force: true }).catch(() => {});
         console.timeEnd("[RUNTIME-TIME] total");
     }
