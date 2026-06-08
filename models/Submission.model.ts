@@ -108,6 +108,36 @@ const RunnerCheckSchema = new Schema(
     { _id: false }
 );
 
+const RunnerArtifactSchema = new Schema(
+    {
+        label: { type: String, required: true, trim: true },
+        path: { type: String, default: "", trim: true },
+        url: { type: String, default: "", trim: true },
+        mimeType: { type: String, default: "", trim: true },
+    },
+    { _id: false }
+);
+
+const RunnerLogSchema = new Schema(
+    {
+        label: { type: String, required: true, trim: true },
+        content: { type: String, default: "" },
+    },
+    { _id: false }
+);
+
+const VisualComparisonSchema = new Schema(
+    {
+        similarity: { type: Number, default: null },
+        diffPercent: { type: Number, default: null },
+        baselineUrl: { type: String, default: "", trim: true },
+        studentUrl: { type: String, default: "", trim: true },
+        diffUrl: { type: String, default: "", trim: true },
+        message: { type: String, default: "", trim: true },
+    },
+    { _id: false }
+);
+
 const RunnerReportSchema = new Schema(
     {
         buildPassed: { type: Boolean, default: null },
@@ -116,10 +146,37 @@ const RunnerReportSchema = new Schema(
         accessibilityScore: { type: Number, default: null },
         checks: { type: [RunnerCheckSchema], default: [] },
         rawSummary: { type: String, default: null, trim: true },
+
+        runtimeStatus: {
+            type: String,
+            enum: [
+                "not_run",
+                "project_invalid",
+                "build_failed",
+                "apk_missing",
+                "install_failed",
+                "launch_failed",
+                "screenshot_failed",
+                "comparison_failed",
+                "passed",
+            ],
+            default: "not_run",
+        },
+
+        packageName: { type: String, default: null, trim: true },
+        apkPath: { type: String, default: null, trim: true },
+
+        screenshots: { type: [RunnerArtifactSchema], default: [] },
+        artifacts: { type: [RunnerArtifactSchema], default: [] },
+        logs: { type: [RunnerLogSchema], default: [] },
+
+        visualComparison: {
+            type: VisualComparisonSchema,
+            default: null,
+        },
     },
     { _id: false }
 );
-
 const AiIssueSchema = new Schema(
     {
         severity: {

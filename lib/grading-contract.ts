@@ -4,7 +4,57 @@ export type GradeStatus =
     | "auto_graded"
     | "needs_teacher_review"
     | "overridden";
+// chạy giao diện apk
+export type RuntimeStatus =
+    | "not_run"
+    | "project_invalid"
+    | "build_failed"
+    | "apk_missing"
+    | "install_failed"
+    | "launch_failed"
+    | "screenshot_failed"
+    | "comparison_failed"
+    | "passed";
 
+export interface RunnerArtifact {
+    label: string;
+    path?: string;
+    url?: string;
+    mimeType?: string;
+}
+
+export interface RunnerLog {
+    label: string;
+    content: string;
+}
+
+export interface VisualComparisonResult {
+    similarity: number;
+    diffPercent: number;
+    baselineUrl?: string;
+    studentUrl?: string;
+    diffUrl?: string;
+    message?: string;
+}
+
+export interface RunnerReportInput {
+    buildPassed?: boolean | null;
+    testPassed?: boolean | null;
+    visualSimilarity?: number | null;
+    accessibilityScore?: number | null;
+    checks?: RunnerCheck[];
+    rawSummary?: string | null;
+
+    runtimeStatus?: RuntimeStatus;
+    packageName?: string | null;
+    apkPath?: string | null;
+
+    screenshots?: RunnerArtifact[];
+    artifacts?: RunnerArtifact[];
+    logs?: RunnerLog[];
+
+    visualComparison?: VisualComparisonResult | null;
+}
 export interface RubricCriterion {
     code: string;
     title: string;

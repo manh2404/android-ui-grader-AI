@@ -6,7 +6,7 @@ import { GradingHistoryPanel } from "./GradingHistoryPanel";
 import { ScoreEditorCard } from "./ScoreEditorCard";
 import { SubmissionPreview } from "./SubmissionPreview";
 import { TeacherFeedbackPanel } from "./TeacherFeedbackPanel";
-
+import { RuntimeRunnerPanel } from "./RuntimeRunnerPanel";
 type Props = {
     selectedSidebar: SidebarStudent | null;
     selectedSubmissionId: string | null;
@@ -70,6 +70,7 @@ export function StudentDetailPanel({
                 ) : (
                     <div className="space-y-5 p-4 sm:p-5">
                         <SubmissionPreview detail={detail} selectedFile={selectedFile} />
+                        <RuntimeRunnerPanel detail={detail} />
 
                         <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
                             <ScoreEditorCard

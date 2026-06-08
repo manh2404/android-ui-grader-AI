@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import AdmZip from "adm-zip";
 import type { RubricCriterion, RunnerCheck, RunnerReportInput } from "@/lib/grading-contract";
-
+import { runAndroidProjectRuntime } from "@/services/android-runtime-runner.service";
 type SubmissionLike = {
     sourceArchive?: {
         url?: string | null;
@@ -13,6 +13,12 @@ type SubmissionLike = {
     } | null;
     assignmentSnapshot?: {
         rubric?: RubricCriterion[];
+        attachments?: Array<{
+            kind?: string;
+            url?: string;
+            originalName?: string;
+            mimeType?: string;
+        }>;
         runnerConfig?: {
             requiredFiles?: string[];
             entryFiles?: string[];
@@ -495,17 +501,67 @@ export async function runRunnerForSubmission(
             })
         );
 
-        const passedChecks = checks.filter((item) => item.status === "passed").length;
-        const ratio = checks.length ? passedChecks / checks.length : 0;
-        const visualSimilarity = round2(clamp(ratio, 0, 1) * 100);
+        const staticPassedChecks = checks.filter((item) => item.status === "passed").length;
+
+        let runtimeReport: RunnerReportInput | null = null;
+
+        console.log("[RUNTIME] sourceArchive =", submission.sourceArchive);
+
+        if (submission.sourceArchive?.url) {
+            console.log("[RUNTIME] start runAndroidProjectRuntime");
+
+            runtimeReport = await runAndroidProjectRuntime({
+                sourceArchive: submission.sourceArchive ?? null,
+                assignmentAttachments: submission.assignmentSnapshot?.attachments ?? [],
+                adbSerial: process.env.ANDROID_ADB_SERIAL || undefined,
+            });
+
+            console.log("[RUNTIME] result =", {
+                runtimeStatus: runtimeReport.runtimeStatus,
+                buildPassed: runtimeReport.buildPassed,
+                testPassed: runtimeReport.testPassed,
+                screenshots: runtimeReport.screenshots?.length ?? 0,
+                logs: runtimeReport.logs?.length ?? 0,
+            });
+        } else {
+            console.log("[RUNTIME] skipped because sourceArchive.url is missing");
+        }
+
+        const runtimeChecks = runtimeReport?.checks ?? [];
+        const allChecks = [...checks, ...runtimeChecks];
+
+        const passedChecks = allChecks.filter((item) => item.status === "passed").length;
+        const ratio = allChecks.length ? passedChecks / allChecks.length : 0;
 
         return {
-            buildPassed: project.hasManifest && project.hasAppGradle && project.hasSettingsGradle,
-            testPassed: null,
-            visualSimilarity,
+            buildPassed:
+                runtimeReport?.buildPassed ??
+                (project.hasManifest && project.hasAppGradle && project.hasSettingsGradle),
+
+            testPassed: runtimeReport?.testPassed ?? null,
+
+            runtimeStatus: runtimeReport?.runtimeStatus ?? "not_run",
+
+            visualSimilarity:
+                runtimeReport?.visualSimilarity ??
+                round2(clamp(ratio, 0, 1) * 100),
+
             accessibilityScore: null,
-            checks,
-            rawSummary: `Runner tĩnh đã quét source Android. Passed ${passedChecks}/${checks.length} checks.`,
+
+            packageName: runtimeReport?.packageName ?? null,
+            apkPath: runtimeReport?.apkPath ?? null,
+
+            screenshots: runtimeReport?.screenshots ?? [],
+            artifacts: runtimeReport?.artifacts ?? [],
+            logs: runtimeReport?.logs ?? [],
+
+            visualComparison: runtimeReport?.visualComparison ?? null,
+
+            checks: allChecks,
+
+            rawSummary: runtimeReport
+                ? runtimeReport.rawSummary
+                : `Runner tĩnh đã quét source Android. Passed ${staticPassedChecks}/${checks.length} checks.`,
         };
     } catch (error) {
         return {
