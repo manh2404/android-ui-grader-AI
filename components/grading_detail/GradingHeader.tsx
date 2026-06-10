@@ -13,7 +13,7 @@ type Props = {
     error: string;
     notice: string;
     onChangeAssignment: (assignmentId: string) => void;
-    onGrade: (regenerateAi: boolean) => void;
+    onGrade: (mode: "grade" | "regrade") => void;
 };
 
 export function GradingHeader({
@@ -72,20 +72,20 @@ export function GradingHeader({
                 <div className="flex flex-wrap gap-3">
                     <button
                         type="button"
-                        onClick={() => onGrade(false)}
+                        onClick={() => onGrade("grade")}
                         disabled={!selectedSubmissionId || grading || detailLoading}
                         className="rounded-2xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                        Chấm AI
+                        {grading ? "Đang chấm..." : "Chấm AI"}
                     </button>
 
                     <button
                         type="button"
-                        onClick={() => onGrade(true)}
+                        onClick={() => onGrade("regrade")}
                         disabled={!selectedSubmissionId || grading || detailLoading}
                         className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                        Chấm lại AI
+                        {grading ? "Đang chấm lại..." : "Chấm lại bài"}
                     </button>
                 </div>
             </div>

@@ -26,6 +26,11 @@ const SubmissionFileSchema = new Schema(
             type: Number,
             default: 0,
         },
+        sourceGitUrl: {
+            type: String,
+            default: "",
+            trim: true,
+        },
     },
     { _id: false }
 );
@@ -383,8 +388,11 @@ const SubmissionSchema = new Schema(
 
         // dữ liệu nộp bài
         sourceArchive: {
-            type: SubmissionFileSchema,
-            default: null,
+            originalName: { type: String, default: "" },
+            storedName: { type: String, default: "" },
+            url: { type: String, default: "" },
+            mimeType: { type: String, default: "" },
+            size: { type: Number, default: 0 },
         },
         screenshots: {
             type: [SubmissionFileSchema],

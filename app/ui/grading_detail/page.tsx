@@ -4,6 +4,7 @@ import { GradingHeader } from "@/components/grading_detail/GradingHeader";
 import { GradingSidebar } from "@/components/grading_detail/GradingSidebar";
 import { StudentDetailPanel } from "@/components/grading_detail/StudentDetailPanel";
 import { useGradingDetail } from "./hook/use_Grading_detail";
+import {mode} from "d3-array";
 
 export default function GradingDetailPage() {
     const grading = useGradingDetail();
@@ -23,7 +24,7 @@ export default function GradingDetailPage() {
                     if (!nextId || nextId === grading.assignmentId) return;
                     grading.syncUrl(nextId, null, null);
                 }}
-                onGrade={(regenerateAi) => void grading.handleGrade(regenerateAi)}
+                onGrade={(mode) => void grading.handleGrade(mode)}
             />
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">

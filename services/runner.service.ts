@@ -10,7 +10,10 @@ type SubmissionLike = {
         url?: string | null;
         storedName?: string | null;
         originalName?: string | null;
+        mimeType?: string | null;
+        size?: number | null;
     } | null;
+    repositoryUrl?: string | null;
     assignmentSnapshot?: {
         rubric?: RubricCriterion[];
         attachments?: Array<{
@@ -229,33 +232,79 @@ export async function runRunnerForSubmission(
         : [];
 
     const archiveAbsolutePath = buildArchiveAbsolutePath(submission.sourceArchive);
+    const hasArchive = Boolean(archiveAbsolutePath && fs.existsSync(archiveAbsolutePath));
+    const hasGitUrl = Boolean(String(submission.repositoryUrl || "").trim());
 
-    if (!archiveAbsolutePath || !fs.existsSync(archiveAbsolutePath)) {
+    if (!hasArchive && !hasGitUrl) {
         return {
             buildPassed: null,
             testPassed: null,
+            runtimeStatus: "project_invalid",
             checks: [
                 makeCheck({
-                    code: "archive_missing",
-                    label: "Source archive",
+                    code: "source_missing",
+                    label: "Nguồn bài nộp",
                     status: "not_run",
                     score: 0,
                     maxScore: 0,
-                    message: "Không tìm thấy file zip bài nộp để chạy runner.",
+                    message: "Không tìm thấy file ZIP bài nộp và cũng không có link GitHub.",
                     evidence: [],
                 }),
             ],
-            rawSummary: "Runner không chạy được vì thiếu source archive.",
+            rawSummary: "Runner không chạy được vì thiếu nguồn bài nộp.",
+        };
+    }
+
+    if (!hasArchive && hasGitUrl) {
+        console.log("[RUNTIME] repositoryUrl =", submission.repositoryUrl);
+        console.log("[RUNTIME] start runAndroidProjectRuntime from GitHub");
+
+        const runtimeReport = await runAndroidProjectRuntime({
+            sourceArchive: submission.sourceArchive ?? null,
+            repositoryUrl: submission.repositoryUrl ?? null,
+            assignmentAttachments: submission.assignmentSnapshot?.attachments ?? [],
+            adbSerial: process.env.ANDROID_ADB_SERIAL || undefined,
+        });
+
+        console.log("[RUNTIME] result =", {
+            runtimeStatus: runtimeReport.runtimeStatus,
+            buildPassed: runtimeReport.buildPassed,
+            testPassed: runtimeReport.testPassed,
+            screenshots: runtimeReport.screenshots?.length ?? 0,
+            logs: runtimeReport.logs?.length ?? 0,
+        });
+
+        return {
+            buildPassed: runtimeReport.buildPassed ?? null,
+            testPassed: runtimeReport.testPassed ?? null,
+            runtimeStatus: runtimeReport.runtimeStatus ?? "not_run",
+            visualSimilarity: runtimeReport.visualSimilarity ?? null,
+            accessibilityScore: null,
+            packageName: runtimeReport.packageName ?? null,
+            apkPath: runtimeReport.apkPath ?? null,
+            screenshots: runtimeReport.screenshots ?? [],
+            artifacts: runtimeReport.artifacts ?? [],
+            logs: runtimeReport.logs ?? [],
+            visualComparison: runtimeReport.visualComparison ?? null,
+            checks: runtimeReport.checks ?? [],
+            rawSummary: runtimeReport.rawSummary ?? "Runner runtime đã chạy từ GitHub.",
         };
     }
 
     const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), "autograde-runner-"));
 
     try {
-        const zip = new AdmZip(archiveAbsolutePath);
-        zip.extractAllTo(tempDir, true);
+        let scanRootDir = tempDir;
 
-        const ctx = await loadScanContext(tempDir);
+        if (archiveAbsolutePath && fs.existsSync(archiveAbsolutePath)) {
+            const zip = new AdmZip(archiveAbsolutePath);
+            zip.extractAllTo(tempDir, true);
+            scanRootDir = tempDir;
+        } else if (hasGitUrl) {
+            scanRootDir = tempDir;
+        }
+
+        const ctx = await loadScanContext(scanRootDir);
         const checks: RunnerCheck[] = [];
 
         const project = detectAndroidProject(ctx);
@@ -506,12 +555,14 @@ export async function runRunnerForSubmission(
         let runtimeReport: RunnerReportInput | null = null;
 
         console.log("[RUNTIME] sourceArchive =", submission.sourceArchive);
+        console.log("[RUNTIME] repositoryUrl =", submission.repositoryUrl);
 
-        if (submission.sourceArchive?.url) {
+        if (submission.sourceArchive?.url || submission.repositoryUrl) {
             console.log("[RUNTIME] start runAndroidProjectRuntime");
 
             runtimeReport = await runAndroidProjectRuntime({
                 sourceArchive: submission.sourceArchive ?? null,
+                repositoryUrl: submission.repositoryUrl ?? null,
                 assignmentAttachments: submission.assignmentSnapshot?.attachments ?? [],
                 adbSerial: process.env.ANDROID_ADB_SERIAL || undefined,
             });
@@ -524,7 +575,7 @@ export async function runRunnerForSubmission(
                 logs: runtimeReport.logs?.length ?? 0,
             });
         } else {
-            console.log("[RUNTIME] skipped because sourceArchive.url is missing");
+            console.log("[RUNTIME] skipped because sourceArchive.url and repositoryUrl are missing");
         }
 
         const runtimeChecks = runtimeReport?.checks ?? [];
@@ -542,9 +593,9 @@ export async function runRunnerForSubmission(
 
             runtimeStatus: runtimeReport?.runtimeStatus ?? "not_run",
 
-            visualSimilarity:
-                runtimeReport?.visualSimilarity ??
-                round2(clamp(ratio, 0, 1) * 100),
+            visualSimilarity: runtimeReport
+                ? runtimeReport.visualSimilarity ?? null
+                : round2(clamp(ratio, 0, 1) * 100),
 
             accessibilityScore: null,
 

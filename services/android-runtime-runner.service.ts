@@ -667,12 +667,26 @@ async function actuallyStartEmulator(input: {
         emulatorArgs,
     });
 
-    const child = spawn(emulatorCmd, emulatorArgs, {
-        detached: true,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: false,
-        env: process.env,
-    });
+    const child = spawn(
+        "cmd.exe",
+        [
+            "/c",
+            "start",
+            '""',
+            "/min",
+            emulatorCmd,
+            ...emulatorArgs,
+        ],
+        {
+            detached: true,
+            stdio: "ignore",
+            windowsHide: true,
+            shell: false,
+            env: process.env,
+        }
+    );
+
+    child.unref();
 
     let emulatorStdout = "";
     let emulatorStderr = "";
@@ -751,6 +765,335 @@ function compactLog(stdout: string, stderr: string, limit = 30000) {
         fullLog.slice(-half);
 }
 
+
+function normalizeGithubUrl(url?: string | null) {
+    const value = String(url || "").trim();
+
+    if (!value) return null;
+
+    const match = value.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/?$/);
+
+    if (!match) return null;
+
+    const owner = match[1];
+    const repo = match[2];
+
+    if (!owner || !repo) return null;
+
+    return {
+        owner,
+        repo,
+        displayUrl: `https://github.com/${owner}/${repo}`,
+        cloneUrl: `https://github.com/${owner}/${repo}.git`,
+    };
+}
+
+async function assertPublicGithubRepo(gitUrl: string) {
+    const normalized = normalizeGithubUrl(gitUrl);
+
+    if (!normalized) {
+        return {
+            ok: false,
+            message: "Link GitHub không hợp lệ. Chỉ chấp nhận dạng https://github.com/owner/repo",
+            stdout: "",
+            stderr: "",
+        };
+    }
+
+    const hasGit = await commandExists("git");
+
+    if (!hasGit) {
+        return {
+            ok: false,
+            message: "Máy runner chưa cài Git hoặc lệnh git chưa có trong PATH.",
+            stdout: "",
+            stderr: "git command not found",
+        };
+    }
+
+    const result = await runTextLive(
+        "git",
+        ["ls-remote", "--exit-code", normalized.cloneUrl, "HEAD"],
+        undefined,
+        60_000
+    );
+
+    if (!result.ok) {
+        return {
+            ok: false,
+            message:
+                "Không truy cập được repository GitHub. Repo phải để Public và link phải đúng dạng https://github.com/owner/repo.",
+            stdout: result.stdout,
+            stderr: result.stderr,
+        };
+    }
+
+    return {
+        ok: true,
+        message: "Repository GitHub hợp lệ và truy cập public được.",
+        stdout: result.stdout,
+        stderr: result.stderr,
+    };
+}
+
+function isGeneratedAndroidRepoPath(repoPath: string) {
+    const normalized = repoPath.replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase();
+    const parts = normalized.split("/").filter(Boolean);
+
+    return (
+        parts.includes("build") ||
+        parts.includes(".gradle") ||
+        parts.includes(".idea") ||
+        normalized.endsWith(".iml") ||
+        normalized === "local.properties" ||
+        normalized.endsWith("/local.properties")
+    );
+}
+
+function summarizeGeneratedRepoPaths(paths: string[], limit = 40) {
+    if (!paths.length) return "Không phát hiện file/thư mục build cache thừa.";
+
+    const shown = paths.slice(0, limit).join("\n");
+    const more = paths.length > limit ? `\n... còn ${paths.length - limit} file/thư mục khác` : "";
+
+    return (
+        `Phát hiện ${paths.length} file/thư mục sinh tự động trong repo GitHub. ` +
+        "Hệ thống đã bỏ qua các file này khi checkout để clone/build sạch.\n" +
+        shown +
+        more
+    );
+}
+
+async function writeSparseCheckoutRules(repoDir: string) {
+    const infoDir = path.join(repoDir, ".git", "info");
+    await fsp.mkdir(infoDir, { recursive: true });
+
+    const sparseRules = [
+        "/*",
+        "!/.gradle/",
+        "!/.gradle/**",
+        "!/.idea/",
+        "!/.idea/**",
+        "!/build/",
+        "!/build/**",
+        "!/**/build/",
+        "!/**/build/**",
+        "!/local.properties",
+        "!/**/local.properties",
+        "!/*.iml",
+        "!/**/*.iml",
+        "",
+    ].join("\n");
+
+    await fsp.writeFile(path.join(infoDir, "sparse-checkout"), sparseRules, "utf8");
+}
+
+async function removeGeneratedAndroidDirs(projectRoot: string) {
+    const candidates = [
+        path.join(projectRoot, ".gradle"),
+        path.join(projectRoot, ".idea"),
+        path.join(projectRoot, "build"),
+        path.join(projectRoot, "app", "build"),
+        path.join(projectRoot, "local.properties"),
+    ];
+
+    for (const item of candidates) {
+        await fsp.rm(item, { recursive: true, force: true }).catch(() => {});
+    }
+}
+
+async function cloneGithubRepo(input: {
+    gitUrl: string;
+    tempDir: string;
+}) {
+    const normalized = normalizeGithubUrl(input.gitUrl);
+
+    if (!normalized) {
+        return {
+            ok: false,
+            projectDir: "",
+            stdout: "",
+            stderr: "Link GitHub không hợp lệ. Chỉ chấp nhận dạng https://github.com/owner/repo",
+        };
+    }
+
+    const publicCheck = await assertPublicGithubRepo(input.gitUrl);
+
+    if (!publicCheck.ok) {
+        return {
+            ok: false,
+            projectDir: "",
+            stdout: publicCheck.stdout,
+            stderr: `${publicCheck.message}\n\n${publicCheck.stderr}`,
+        };
+    }
+
+    const targetDir = path.join(input.tempDir, "repo");
+
+    // Clone không checkout ngay để tránh lỗi Windows "Filename too long"
+    // khi sinh viên lỡ push app/build, build, .gradle, .idea lên GitHub.
+    const clone = await runTextLive(
+        "git",
+        [
+            "clone",
+            "--depth",
+            "1",
+            "--filter=blob:none",
+            "--no-checkout",
+            normalized.cloneUrl,
+            targetDir,
+        ],
+        undefined,
+        180_000
+    );
+
+    if (!clone.ok) {
+        return {
+            ok: false,
+            projectDir: "",
+            stdout: clone.stdout,
+            stderr: clone.stderr,
+        };
+    }
+
+    // Bật longpaths riêng cho repo này. Nếu máy Windows chưa bật global, lệnh này vẫn giúp phần lớn case.
+    await runText("git", ["config", "core.longpaths", "true"], targetDir, 30_000);
+
+    const trackedFiles = await runTextLive(
+        "git",
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        targetDir,
+        60_000
+    );
+
+    if (!trackedFiles.ok) {
+        return {
+            ok: false,
+            projectDir: "",
+            stdout: `${clone.stdout}\n${trackedFiles.stdout}`,
+            stderr: `Clone được repo nhưng không đọc được danh sách file.\n${trackedFiles.stderr}`,
+        };
+    }
+
+    const generatedPaths = trackedFiles.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter(isGeneratedAndroidRepoPath);
+
+    const cleanupReport = summarizeGeneratedRepoPaths(generatedPaths);
+
+    // Luôn sparse checkout để loại bỏ build cache nếu có. Nếu không có file thừa, rules này vẫn an toàn.
+    await runText("git", ["config", "core.sparseCheckout", "true"], targetDir, 30_000);
+    await runText("git", ["config", "core.sparseCheckoutCone", "false"], targetDir, 30_000);
+    await writeSparseCheckoutRules(targetDir);
+
+    const checkout = await runTextLive(
+        "git",
+        ["checkout", "-f", "HEAD"],
+        targetDir,
+        180_000
+    );
+
+    if (!checkout.ok) {
+        const checkoutLog = `${checkout.stdout}\n${checkout.stderr}`;
+        const filenameTooLongHelp = checkoutLog.toLowerCase().includes("filename too long")
+            ? "\n\nRepo vẫn còn file đường dẫn quá dài. Hãy yêu cầu sinh viên xóa build/, app/build/, .gradle/, .idea/ khỏi GitHub hoặc bật Windows long paths cho Git."
+            : "";
+
+        return {
+            ok: false,
+            projectDir: "",
+            stdout: `${clone.stdout}\n${trackedFiles.stdout}\n${checkout.stdout}`,
+            stderr: `${cleanupReport}\n\nCheckout source thất bại.\n${checkout.stderr}${filenameTooLongHelp}`,
+        };
+    }
+
+    await removeGeneratedAndroidDirs(targetDir);
+
+    return {
+        ok: true,
+        projectDir: targetDir,
+        stdout: [
+            clone.stdout,
+            trackedFiles.stdout,
+            checkout.stdout,
+            "",
+            cleanupReport,
+        ].join("\n"),
+        stderr: [clone.stderr, trackedFiles.stderr, checkout.stderr].filter(Boolean).join("\n"),
+    };
+}
+
+async function prepareProjectSource(input: {
+    sourceArchive: SourceArchive;
+    repositoryUrl?: string | null;
+    tempDir: string;
+    logs: Array<{ label: string; content: string }>;
+}) {
+    const gitUrl = String(input.repositoryUrl || "").trim();
+
+    if (gitUrl) {
+        const normalized = normalizeGithubUrl(gitUrl);
+
+        if (!normalized) {
+            return {
+                ok: false,
+                sourceRoot: "",
+                message: "Link GitHub không hợp lệ. Chỉ chấp nhận dạng https://github.com/owner/repo",
+            };
+        }
+
+        const cloned = await cloneGithubRepo({
+            gitUrl,
+            tempDir: input.tempDir,
+        });
+
+        input.logs.push({
+            label: "GitHub clone log",
+            content:
+                `Git URL: ${gitUrl}\n` +
+                `Yêu cầu: repository phải Public và link đúng dạng https://github.com/owner/repo\n\n` +
+                `stdout:\n${cloned.stdout}\n\n` +
+                `stderr:\n${cloned.stderr}`,
+        });
+
+        if (!cloned.ok) {
+            return {
+                ok: false,
+                sourceRoot: "",
+                message:
+                    "Không clone được repository GitHub. Repo phải Public, link phải đúng dạng https://github.com/owner/repo, và máy runner phải cài Git.",
+            };
+        }
+
+        return {
+            ok: true,
+            sourceRoot: cloned.projectDir,
+            message: "Đã clone repository GitHub public thành công.",
+        };
+    }
+
+    const archivePath = archiveToAbsolutePath(input.sourceArchive);
+
+    if (!archivePath || !fs.existsSync(archivePath)) {
+        return {
+            ok: false,
+            sourceRoot: "",
+            message: "Không tìm thấy file ZIP bài nộp và cũng không có link GitHub.",
+        };
+    }
+
+    const zip = new AdmZip(archivePath);
+    zip.extractAllTo(input.tempDir, true);
+
+    return {
+        ok: true,
+        sourceRoot: input.tempDir,
+        message: "Đã giải nén ZIP bài nộp thành công.",
+    };
+}
+
 async function captureScreenshot(input: {
     adbCmd: string;
     adbBase: string[];
@@ -808,28 +1151,30 @@ async function captureScreenshot(input: {
 
 export async function runAndroidProjectRuntime(input: {
     sourceArchive: SourceArchive;
+    repositoryUrl?: string | null;
     assignmentAttachments?: AssignmentAttachment[];
     adbSerial?: string;
 }): Promise<RunnerReportInput> {
     const checks: RunnerCheck[] = [];
     const logs: Array<{ label: string; content: string }> = [];
 
-    const archivePath = archiveToAbsolutePath(input.sourceArchive);
+    const hasArchive = Boolean(input.sourceArchive?.url);
+    const hasGitUrl = Boolean(String(input.repositoryUrl || "").trim());
 
-    if (!archivePath || !fs.existsSync(archivePath)) {
+    if (!hasArchive && !hasGitUrl) {
         return {
             runtimeStatus: "project_invalid",
             buildPassed: false,
             testPassed: false,
             checks: [
                 makeCheck({
-                    code: "archive_missing",
-                    label: "File ZIP bài nộp",
+                    code: "source_missing",
+                    label: "Nguồn bài nộp",
                     status: "failed",
-                    message: "Không tìm thấy file ZIP bài nộp.",
+                    message: "Không có file ZIP bài nộp và cũng không có link GitHub.",
                 }),
             ],
-            rawSummary: "Không chạy được vì thiếu file ZIP bài nộp.",
+            rawSummary: "Không chạy được vì thiếu nguồn bài nộp.",
         };
     }
 
@@ -838,9 +1183,41 @@ export async function runAndroidProjectRuntime(input: {
     await fsp.mkdir(outputDir, { recursive: true });
 
     try {
-        const zip = new AdmZip(archivePath);
-        zip.extractAllTo(tempDir, true);
-        const projectRoot = await findAndroidProjectRoot(tempDir);
+        const preparedSource = await prepareProjectSource({
+            sourceArchive: input.sourceArchive,
+            repositoryUrl: input.repositoryUrl,
+            tempDir,
+            logs,
+        });
+
+        if (!preparedSource.ok) {
+            return {
+                runtimeStatus: "project_invalid",
+                buildPassed: false,
+                testPassed: false,
+                checks: [
+                    makeCheck({
+                        code: "source_prepare",
+                        label: "Chuẩn bị source bài nộp",
+                        status: "failed",
+                        message: preparedSource.message,
+                    }),
+                ],
+                logs,
+                rawSummary: preparedSource.message,
+            };
+        }
+
+        checks.push(
+            makeCheck({
+                code: "source_prepare",
+                label: "Chuẩn bị source bài nộp",
+                status: "passed",
+                message: preparedSource.message,
+            })
+        );
+
+        const projectRoot = await findAndroidProjectRoot(preparedSource.sourceRoot);
 
         if (!projectRoot) {
             return {

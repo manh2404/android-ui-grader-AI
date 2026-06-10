@@ -245,8 +245,10 @@ export function useGradingDetail() {
         void run();
     }, [assignmentId, submissionIdParam, studentIdParam]);
 
-    async function handleGrade(regenerateAi: boolean) {
+    async function handleGrade(mode: "grade" | "regrade") {
         if (!selectedSubmissionId) return;
+
+        const isRegrade = mode === "regrade";
 
         setGrading(true);
         setError("");
@@ -255,13 +257,27 @@ export function useGradingDetail() {
         try {
             const json = await requestJson(`/api/submissions/${selectedSubmissionId}/grade`, {
                 method: "POST",
-                body: JSON.stringify({ regenerateAi }),
+                body: JSON.stringify({
+                    regenerateAi: isRegrade,
+                    regenerateRunner: isRegrade,
+                    mode: isRegrade ? "full" : "normal",
+                }),
             });
 
-            setNotice(json.message || "Chấm AI thành công");
+            setNotice(
+                json.message ||
+                (isRegrade ? "Chấm lại bài thành công" : "Chấm AI thành công")
+            );
+
             await loadPage(assignmentId, selectedSubmissionId, selectedStudentId);
         } catch (e) {
-            setError(e instanceof Error ? e.message : "Không thể chấm AI");
+            setError(
+                e instanceof Error
+                    ? e.message
+                    : isRegrade
+                        ? "Không thể chấm lại bài"
+                        : "Không thể chấm AI"
+            );
         } finally {
             setGrading(false);
         }
