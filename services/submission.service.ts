@@ -122,7 +122,8 @@ export const submissionService = {
                 ? rawMaxAttempts
                 : Number.MAX_SAFE_INTEGER
             : rawMaxAttempts;
-        const maxFileSizeBytes = Number(submissionPolicy.maxFileSizeMb || 100) * 1024 * 1024;
+        const maxFileSizeMb = Number(submissionPolicy.maxFileSizeMb || 256);
+        const maxFileSizeBytes = maxFileSizeMb * 1024 * 1024;
 
         if (payload.repositoryUrl?.trim() && !allowGithubUrl) {
             throw new Error("Bài tập này không cho phép nộp link repository");
@@ -146,7 +147,7 @@ export const submissionService = {
 
             if (Number(input.sourceArchive.size || 0) > maxFileSizeBytes) {
                 throw new Error(
-                    `File bài nộp vượt quá dung lượng cho phép ${submissionPolicy.maxFileSizeMb} MB`
+                    `File bài nộp vượt quá dung lượng cho phép ${maxFileSizeMb} MB`
                 );
             }
         }
@@ -154,7 +155,7 @@ export const submissionService = {
         for (const screenshot of input.screenshots) {
             if (Number(screenshot.size || 0) > maxFileSizeBytes) {
                 throw new Error(
-                    `Ảnh screenshot vượt quá dung lượng cho phép ${submissionPolicy.maxFileSizeMb} MB`
+                    `Ảnh screenshot vượt quá dung lượng cho phép ${maxFileSizeMb} MB`
                 );
             }
         }

@@ -31,7 +31,7 @@ export function GradingSidebar({
                                    onSelectStudent,
                                }: Props) {
     return (
-        <aside className="lg:col-span-4">
+        <aside className="lg:sticky lg:top-20 lg:col-span-4 lg:self-start">
             <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                 <h2 className="text-lg font-bold text-slate-900">{assignment?.title || "Danh sách sinh viên"}</h2>
                 <p className="mt-1 text-sm text-orange-600">Hạn nộp: {formatDateTime(assignment?.dueAt)}</p>
@@ -94,7 +94,9 @@ export function GradingSidebar({
                         </div>
                     </>
                 ) : (
-                    <SidebarConfig assignment={assignment} rubric={rubric} />
+                    <div className="mt-4 max-h-[calc(100vh-180px)] overflow-y-auto pr-1">
+                        <SidebarConfig assignment={assignment} rubric={rubric} />
+                    </div>
                 )}
             </section>
         </aside>

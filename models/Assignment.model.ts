@@ -112,6 +112,61 @@ const SubmissionPolicySchema = new Schema(
     { _id: false }
 );
 
+const UiScreenSchema = new Schema(
+    {
+        screenKey: {
+            type: String,
+            required: true,
+            trim: true,
+        },
+        label: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        baselineUrl: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        threshold: {
+            type: Number,
+            default: 70,
+        },
+    },
+    { _id: false }
+);
+
+const UiActionSchema = new Schema(
+    {
+        type: {
+            type: String,
+            enum: ["wait", "screenshot", "tapTag", "textTag", "pressBack"],
+            required: true,
+        },
+        ms: {
+            type: Number,
+            default: 1000,
+        },
+        screenKey: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        tag: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        value: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+    },
+    { _id: false }
+);
+
 const RunnerConfigSchema = new Schema(
     {
         requiredFiles: {
@@ -138,6 +193,24 @@ const RunnerConfigSchema = new Schema(
         },
         screenshotTargets: {
             type: [String],
+            default: [],
+        },
+        scenarioId: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        scenarioName: {
+            type: String,
+            default: "",
+            trim: true,
+        },
+        uiScreens: {
+            type: [UiScreenSchema],
+            default: [],
+        },
+        uiActions: {
+            type: [UiActionSchema],
             default: [],
         },
     },
@@ -208,7 +281,7 @@ const AssignmentSchema = new Schema(
             type: SubmissionPolicySchema,
             default: () => ({
                 acceptedFileTypes: ["zip"],
-                maxFileSizeMb: 100,
+                maxFileSizeMb: 256,
                 maxAttempts: 1,
                 requireZip: true,
                 allowGithubUrl: false,

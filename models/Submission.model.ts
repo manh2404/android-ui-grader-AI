@@ -133,6 +133,8 @@ const RunnerLogSchema = new Schema(
 
 const VisualComparisonSchema = new Schema(
     {
+        screenKey: { type: String, default: "", trim: true },
+        label: { type: String, default: "", trim: true },
         similarity: { type: Number, default: null },
         diffPercent: { type: Number, default: null },
         baselineUrl: { type: String, default: "", trim: true },
@@ -178,6 +180,10 @@ const RunnerReportSchema = new Schema(
         visualComparison: {
             type: VisualComparisonSchema,
             default: null,
+        },
+        visualComparisons: {
+            type: [VisualComparisonSchema],
+            default: [],
         },
     },
     { _id: false }

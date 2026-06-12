@@ -43,6 +43,8 @@ export function normalizeAssignment(raw: unknown): AssignmentDetail {
             }
             : null,
         rubric: Array.isArray(item.rubric) ? item.rubric : [],
+        attachments: Array.isArray(item.attachments) ? item.attachments : [],
+        runnerConfig: asObj(item.runnerConfig),
     };
 }
 

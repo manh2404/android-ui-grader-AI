@@ -23,13 +23,26 @@ const rubricCriterionSchema = z.object({
 
 const submissionPolicySchema = z.object({
     acceptedFileTypes: z.array(z.string().trim()).default(["zip"]),
-    maxFileSizeMb: z.number().int().min(1).default(100),
+    maxFileSizeMb: z.number().int().min(1).default(256),
     maxAttempts: z.number().int().min(1).default(1),
     requireZip: z.boolean().default(true),
     allowGithubUrl: z.boolean().default(false),
     allowScreenshots: z.boolean().default(true),
 });
+const uiScreenSchema = z.object({
+    screenKey: z.string().trim().min(1),
+    label: z.string().trim().default(""),
+    baselineUrl: z.string().trim().default(""),
+    threshold: z.number().min(0).max(100).default(70),
+});
 
+const uiActionSchema = z.object({
+    type: z.enum(["wait", "screenshot", "tapTag", "textTag", "pressBack"]),
+    ms: z.number().optional(),
+    screenKey: z.string().trim().optional(),
+    tag: z.string().trim().optional(),
+    value: z.string().trim().optional(),
+});
 const runnerConfigSchema = z.object({
     requiredFiles: z.array(z.string().trim()).default([]),
     entryFiles: z.array(z.string().trim()).default([]),
@@ -37,6 +50,10 @@ const runnerConfigSchema = z.object({
     runCommand: z.string().trim().default(""),
     deviceProfiles: z.array(z.string().trim()).default([]),
     screenshotTargets: z.array(z.string().trim()).default([]),
+    scenarioId: z.string().trim().default(""),
+    scenarioName: z.string().trim().default(""),
+    uiScreens: z.array(uiScreenSchema).default([]),
+    uiActions: z.array(uiActionSchema).default([]),
 });
 
 const aiConfigSchema = z.object({
@@ -48,7 +65,7 @@ const aiConfigSchema = z.object({
 
 const DEFAULT_SUBMISSION_POLICY = {
     acceptedFileTypes: ["zip"],
-    maxFileSizeMb: 100,
+    maxFileSizeMb: 256,
     maxAttempts: 1,
     requireZip: true,
     allowGithubUrl: false,
@@ -62,6 +79,10 @@ const DEFAULT_RUNNER_CONFIG = {
     runCommand: "",
     deviceProfiles: [],
     screenshotTargets: [],
+    scenarioId: "",
+    scenarioName: "",
+    uiScreens: [],
+    uiActions: [],
 } satisfies z.input<typeof runnerConfigSchema>;
 
 const DEFAULT_AI_CONFIG = {

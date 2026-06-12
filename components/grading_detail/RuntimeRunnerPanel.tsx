@@ -55,6 +55,11 @@ export function RuntimeRunnerPanel({ detail }: Props) {
     const screenshots = Array.isArray(runner.screenshots) ? runner.screenshots : [];
     const logs = Array.isArray(runner.logs) ? runner.logs : [];
     const comparison = runner.visualComparison;
+    const comparisons = Array.isArray(runner.visualComparisons)
+        ? runner.visualComparisons
+        : comparison
+            ? [comparison]
+            : [];
 
     return (
         <section className="rounded-3xl border border-slate-200 bg-white p-5">
@@ -78,7 +83,9 @@ export function RuntimeRunnerPanel({ detail }: Props) {
 
             {runtimeStatus !== "passed" && runtimeStatus !== "not_run" && (
                 <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-700">
-                    Bài của sinh viên chưa chạy được. Giáo viên cần xem log bên dưới để biết lỗi build, lỗi cài APK hoặc lỗi mở app.
+                    {runtimeStatus === "screenshot_failed"
+                        ? "App đã chạy được, nhưng kịch bản UI/testTag hoặc bước chụp giao diện bị lỗi. Giáo viên cần xem log bên dưới để biết testTag nào đang thiếu."
+                        : "Bài của sinh viên chưa chạy được. Giáo viên cần xem log bên dưới để biết lỗi build, lỗi cài APK hoặc lỗi mở app."}
                 </div>
             )}
 
@@ -93,7 +100,17 @@ export function RuntimeRunnerPanel({ detail }: Props) {
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-xs font-bold uppercase text-slate-500">Chạy app</p>
                     <p className="mt-2 text-sm font-semibold text-slate-800">
-                        {runner.testPassed === true ? "Chạy được" : runner.testPassed === false ? "Không chạy được" : "Chưa có"}
+                        {[
+                            "screenshot_failed",
+                            "comparison_failed",
+                            "passed",
+                        ].includes(runtimeStatus)
+                            ? "Chạy được"
+                            : runner.testPassed === true
+                                ? "Chạy được"
+                                : runner.testPassed === false
+                                    ? "Không chạy được"
+                                    : "Chưa có"}
                     </p>
                 </div>
 
@@ -110,68 +127,98 @@ export function RuntimeRunnerPanel({ detail }: Props) {
             </div>
 
             {screenshots.length > 0 && (
-                <div className="mt-5">
-                    <h4 className="font-bold text-slate-900">
-                        Giao diện thật sinh ra từ bài sinh viên
-                    </h4>
+                <details className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+                    <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-bold text-slate-900">
+                        <span>Giao diện thật sinh ra từ bài sinh viên</span>
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                {screenshots.length} ảnh
+            </span>
+                    </summary>
 
-                    <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
-                        {screenshots.map((shot: AnyObj, index: number) => (
-                            <div key={`${toText(shot.url)}-${index}`} className="rounded-2xl border border-slate-200 p-3">
-                                <p className="mb-2 text-sm font-semibold text-slate-700">
-                                    {toText(shot.label, "Screenshot")}
-                                </p>
+                    <div className="mt-4 max-h-[620px] overflow-y-auto pr-2">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            {screenshots.map((shot: AnyObj, index: number) => (
+                                <div
+                                    key={`${toText(shot.url)}-${index}`}
+                                    className="rounded-2xl border border-slate-200 bg-slate-50 p-3"
+                                >
+                                    <p className="mb-2 text-sm font-semibold text-slate-700">
+                                        {toText(shot.label, "Screenshot")}
+                                    </p>
 
-                                {shot.url ? (
-                                    <img
-                                        src={toText(shot.url)}
-                                        alt={toText(shot.label, "Screenshot")}
-                                        className="w-full rounded-xl border border-slate-200"
-                                    />
-                                ) : (
-                                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                                        Không có URL ảnh.
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                                    {shot.url ? (
+                                        <img
+                                            src={toText(shot.url)}
+                                            alt={toText(shot.label, "Screenshot")}
+                                            className="h-[430px] w-full rounded-xl border border-slate-200 bg-white object-contain"
+                                        />
+                                    ) : (
+                                        <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                                            Không có URL ảnh.
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                </div>
+                </details>
             )}
 
-            {comparison && (
-                <div className="mt-5">
-                    <h4 className="font-bold text-slate-900">
-                        So sánh với giao diện chuẩn của giáo viên
-                    </h4>
+            {comparisons.length > 0 && (
+                <details className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+                    <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-bold text-slate-900">
+                        <span>So sánh với giao diện chuẩn của giáo viên</span>
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                {comparisons.length} màn hình
+            </span>
+                    </summary>
 
-                    <p className="mt-2 text-sm text-slate-600">
-                        Độ giống:{" "}
-                        <span className="font-bold text-slate-900">
-                            {comparison.similarity ?? "--"}%
-                        </span>
-                    </p>
+                    <div className="mt-4 max-h-[680px] overflow-y-auto pr-2">
+                        <div className="space-y-4">
+                            {comparisons.map((item: AnyObj, index: number) => (
+                                <div
+                                    key={`${toText(item.screenKey, "screen")}-${index}`}
+                                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                                >
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <p className="font-bold text-slate-900">
+                                                {toText(item.label, toText(item.screenKey, `Màn hình ${index + 1}`))}
+                                            </p>
 
-                    {comparison.message && (
-                        <p className="mt-1 text-sm leading-6 text-slate-600">
-                            {toText(comparison.message)}
-                        </p>
-                    )}
+                                            <p className="mt-1 text-sm text-slate-600">
+                                                Độ giống:{" "}
+                                                <span className="font-bold text-slate-900">
+                                        {item.similarity ?? "--"}%
+                                    </span>
+                                            </p>
+                                        </div>
+                                    </div>
 
-                    <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3">
-                        {comparison.baselineUrl && (
-                            <ImageBox title="Ảnh chuẩn giáo viên" url={comparison.baselineUrl} />
-                        )}
+                                    {item.message && (
+                                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                                            {toText(item.message)}
+                                        </p>
+                                    )}
 
-                        {comparison.studentUrl && (
-                            <ImageBox title="Ảnh sinh viên" url={comparison.studentUrl} />
-                        )}
+                                    <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+                                        {item.baselineUrl && (
+                                            <ImageBox title="Ảnh chuẩn giáo viên" url={toText(item.baselineUrl)} />
+                                        )}
 
-                        {comparison.diffUrl && (
-                            <ImageBox title="Ảnh khác biệt" url={comparison.diffUrl} />
-                        )}
+                                        {item.studentUrl && (
+                                            <ImageBox title="Ảnh sinh viên" url={toText(item.studentUrl)} />
+                                        )}
+
+                                        {item.diffUrl && (
+                                            <ImageBox title="Ảnh khác biệt" url={toText(item.diffUrl)} />
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                </div>
+                </details>
             )}
 
             {logs.length > 0 && (

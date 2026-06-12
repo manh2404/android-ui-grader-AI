@@ -30,6 +30,8 @@ export type AssignmentDetail = {
         code: string;
     } | null;
     rubric: AnyObj[];
+    attachments?: AnyObj[];
+    runnerConfig?: AnyObj;
 };
 
 export type NormalizedSubmission = {

@@ -7,6 +7,46 @@ import AdmZip from "adm-zip";
 import type { RunnerCheck, RunnerReportInput } from "@/lib/grading-contract";
 import { compareStudentScreenshotWithBaseline } from "@/services/visual-comparison.service";
 
+type UiTestAction =
+    | {
+    type: "wait";
+    ms: number;
+}
+    | {
+    type: "screenshot";
+    screenKey: string;
+}
+    | {
+    type: "tapTag";
+    tag: string;
+}
+    | {
+    type: "textTag";
+    tag: string;
+    value: string;
+}
+    | {
+    type: "pressBack";
+};
+
+type UiScreenConfig = {
+    screenKey: string;
+    label?: string;
+    baselineUrl?: string;
+    threshold?: number;
+};
+type AssignmentRunnerConfig = {
+    requiredFiles?: string[];
+    entryFiles?: string[];
+    buildCommand?: string;
+    runCommand?: string;
+    deviceProfiles?: string[];
+    screenshotTargets?: string[];
+    scenarioId?: string;
+    scenarioName?: string;
+    uiScreens?: UiScreenConfig[];
+    uiActions?: UiTestAction[];
+} | null | undefined;
 type SourceArchive = {
     url?: string | null;
     storedName?: string | null;
@@ -460,34 +500,6 @@ async function ensureGradleWrapper(projectRoot: string) {
         cmd: "",
         argsPrefix: [] as string[],
     };
-}
-
-function findBaselineScreenshot(attachments?: AssignmentAttachment[]) {
-    const list = Array.isArray(attachments) ? attachments : [];
-
-    const image = list.find((item) => {
-        const kind = String(item.kind || "").toLowerCase();
-        const mime = String(item.mimeType || "").toLowerCase();
-        const name = String(item.originalName || "").toLowerCase();
-
-        const isImage =
-            mime.startsWith("image/") ||
-            name.endsWith(".png") ||
-            name.endsWith(".jpg") ||
-            name.endsWith(".jpeg") ||
-            name.endsWith(".webp");
-
-        // Tránh lấy nhầm ảnh đề tổng. Chỉ dùng ảnh UI chuẩn được đặt tên rõ.
-        const isUiBaseline =
-            name.startsWith("ui-") ||
-            name.startsWith("baseline-") ||
-            name.includes("-baseline") ||
-            name.includes("_baseline");
-
-        return kind === "template" && isImage && isUiBaseline;
-    });
-
-    return image?.url || null;
 }
 
 function resolveEmulatorCommand() {
@@ -1093,15 +1105,499 @@ async function prepareProjectSource(input: {
         message: "Đã giải nén ZIP bài nộp thành công.",
     };
 }
+function parseBounds(value: string) {
+    const match = value.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
 
+    if (!match) return null;
+
+    const left = Number(match[1]);
+    const top = Number(match[2]);
+    const right = Number(match[3]);
+    const bottom = Number(match[4]);
+
+    return {
+        left,
+        top,
+        right,
+        bottom,
+        x: Math.round((left + right) / 2),
+        y: Math.round((top + bottom) / 2),
+    };
+}
+
+function escapeRegExp(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function dumpUiXml(input: {
+    adbCmd: string;
+    adbBase: string[];
+}) {
+    await runText(
+        input.adbCmd,
+        [...input.adbBase, "shell", "uiautomator", "dump", "/sdcard/window.xml"],
+        undefined,
+        30_000
+    );
+
+    const result = await runText(
+        input.adbCmd,
+        [...input.adbBase, "exec-out", "cat", "/sdcard/window.xml"],
+        undefined,
+        30_000
+    );
+
+    return result.stdout;
+}
+
+async function findBoundsByTestTag(input: {
+    adbCmd: string;
+    adbBase: string[];
+    tag: string;
+}) {
+    const xml = await dumpUiXml({
+        adbCmd: input.adbCmd,
+        adbBase: input.adbBase,
+    });
+
+    const escaped = escapeRegExp(input.tag);
+
+    const patterns = [
+        new RegExp(
+            `<node[^>]*(?:resource-id|content-desc|text)="[^"]*${escaped}[^"]*"[^>]*bounds="([^"]+)"`,
+            "i"
+        ),
+        new RegExp(
+            `<node[^>]*bounds="([^"]+)"[^>]*(?:resource-id|content-desc|text)="[^"]*${escaped}[^"]*"`,
+            "i"
+        ),
+    ];
+
+    for (const pattern of patterns) {
+        const match = xml.match(pattern);
+
+        if (match?.[1]) {
+            return parseBounds(match[1]);
+        }
+    }
+
+    return null;
+}
+
+async function tapByTestTag(input: {
+    adbCmd: string;
+    adbBase: string[];
+    tag: string;
+}) {
+    const bounds = await findBoundsByTestTag(input);
+
+    if (!bounds) {
+        return {
+            ok: false,
+            message:
+                `Không tìm thấy testTag "${input.tag}". ` +
+                "Kiểm tra sinh viên đã dùng Modifier.testTag và root có testTagsAsResourceId = true chưa.",
+        };
+    }
+
+    const tap = await runText(
+        input.adbCmd,
+        [...input.adbBase, "shell", "input", "tap", String(bounds.x), String(bounds.y)],
+        undefined,
+        30_000
+    );
+
+    return {
+        ok: tap.ok,
+        message: tap.ok
+            ? `Đã tap testTag "${input.tag}" tại (${bounds.x}, ${bounds.y}).`
+            : `Tap testTag "${input.tag}" thất bại: ${tap.stderr}`,
+    };
+}
+
+function adbSafeText(value: string) {
+    return value
+        .replace(/\s+/g, "%s")
+        .replace(/&/g, "\\&")
+        .replace(/</g, "\\<")
+        .replace(/>/g, "\\>")
+        .replace(/\|/g, "\\|");
+}
+
+async function textByTestTag(input: {
+    adbCmd: string;
+    adbBase: string[];
+    tag: string;
+    value: string;
+}) {
+    const tapped = await tapByTestTag({
+        adbCmd: input.adbCmd,
+        adbBase: input.adbBase,
+        tag: input.tag,
+    });
+
+    if (!tapped.ok) return tapped;
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const text = await runText(
+        input.adbCmd,
+        [...input.adbBase, "shell", "input", "text", adbSafeText(input.value)],
+        undefined,
+        30_000
+    );
+
+    return {
+        ok: text.ok,
+        message: text.ok
+            ? `Đã nhập "${input.value}" vào testTag "${input.tag}".`
+            : `Nhập text vào "${input.tag}" thất bại: ${text.stderr}`,
+    };
+}
+function extractPackageNameFromDump(text: string) {
+    const patterns = [
+        /mCurrentFocus=Window\{[^}]*\s([a-zA-Z][\w.]+)\/[^\s}]+/i,
+        /mFocusedApp=.*?ActivityRecord\{[^}]*\s([a-zA-Z][\w.]+)\/[^\s}]+/i,
+        /topResumedActivity=.*?ActivityRecord\{[^}]*\s([a-zA-Z][\w.]+)\/[^\s}]+/i,
+        /mResumedActivity: ActivityRecord\{[^}]*\s([a-zA-Z][\w.]+)\/[^\s}]+/i,
+        /ResumedActivity: ActivityRecord\{[^}]*\s([a-zA-Z][\w.]+)\/[^\s}]+/i,
+        /ACTIVITY\s+([a-zA-Z][\w.]+)\/[^\s}]+/i,
+    ];
+
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match?.[1]) return match[1];
+    }
+
+    return "";
+}
+
+async function getCurrentForegroundApp(input: {
+    adbCmd: string;
+    adbBase: string[];
+}) {
+    const commands = [
+        ["shell", "dumpsys", "window"],
+        ["shell", "dumpsys", "activity", "activities"],
+        ["shell", "dumpsys", "activity", "top"],
+    ];
+
+    const logs: string[] = [];
+
+    for (const args of commands) {
+        const result = await runText(
+            input.adbCmd,
+            [...input.adbBase, ...args],
+            undefined,
+            30_000
+        );
+
+        const text = `${result.stdout}\n${result.stderr}`;
+        logs.push(`$ adb ${args.join(" ")}\n${text}`);
+
+        const packageName = extractPackageNameFromDump(text);
+
+        if (packageName) {
+            return {
+                ok: true,
+                packageName,
+                raw: logs.join("\n\n").slice(0, 4000),
+            };
+        }
+    }
+
+    return {
+        ok: false,
+        packageName: "",
+        raw: logs.join("\n\n").slice(0, 4000),
+    };
+}
+
+async function isAppInForeground(input: {
+    adbCmd: string;
+    adbBase: string[];
+    packageName: string;
+}) {
+    const current = await getCurrentForegroundApp({
+        adbCmd: input.adbCmd,
+        adbBase: input.adbBase,
+    });
+
+    return {
+        ok: current.packageName === input.packageName,
+        currentPackage: current.packageName,
+        raw: current.raw,
+    };
+}
+
+async function resolveLauncherActivity(input: {
+    adbCmd: string;
+    adbBase: string[];
+    packageName: string;
+}) {
+    const result = await runText(
+        input.adbCmd,
+        [
+            ...input.adbBase,
+            "shell",
+            "cmd",
+            "package",
+            "resolve-activity",
+            "--brief",
+            input.packageName,
+        ],
+        undefined,
+        30_000
+    );
+
+    const lines = result.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    const activity = lines.find((line) => line.includes("/"));
+
+    return {
+        ok: result.ok && Boolean(activity),
+        activity: activity || "",
+        log: `${result.stdout}\n${result.stderr}`,
+    };
+}
+
+async function launchAppAndVerify(input: {
+    adbCmd: string;
+    adbBase: string[];
+    packageName: string;
+}) {
+    const logs: string[] = [];
+
+    const monkey = await runTextLive(
+        input.adbCmd,
+        [
+            ...input.adbBase,
+            "shell",
+            "monkey",
+            "-p",
+            input.packageName,
+            "-c",
+            "android.intent.category.LAUNCHER",
+            "1",
+        ],
+        undefined,
+        30_000
+    );
+
+    logs.push("=== monkey launch ===");
+    logs.push(monkey.stdout);
+    logs.push(monkey.stderr);
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    let foreground = await isAppInForeground({
+        adbCmd: input.adbCmd,
+        adbBase: input.adbBase,
+        packageName: input.packageName,
+    });
+
+    logs.push("=== foreground after monkey ===");
+    logs.push(`currentPackage=${foreground.currentPackage}`);
+
+    if (foreground.ok) {
+        return {
+            ok: true,
+            message: "App đã mở và đang ở foreground sau lệnh monkey.",
+            log: logs.join("\n"),
+        };
+    }
+
+    const resolved = await resolveLauncherActivity({
+        adbCmd: input.adbCmd,
+        adbBase: input.adbBase,
+        packageName: input.packageName,
+    });
+
+    logs.push("=== resolve launcher activity ===");
+    logs.push(resolved.log);
+    logs.push(`activity=${resolved.activity}`);
+
+    if (resolved.activity) {
+        const start = await runTextLive(
+            input.adbCmd,
+            [
+                ...input.adbBase,
+                "shell",
+                "am",
+                "start",
+                "-W",
+                "-n",
+                resolved.activity,
+            ],
+            undefined,
+            30_000
+        );
+
+        logs.push("=== am start launch ===");
+        logs.push(start.stdout);
+        logs.push(start.stderr);
+
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+
+        foreground = await isAppInForeground({
+            adbCmd: input.adbCmd,
+            adbBase: input.adbBase,
+            packageName: input.packageName,
+        });
+
+        logs.push("=== foreground after am start ===");
+        logs.push(`currentPackage=${foreground.currentPackage}`);
+
+        if (foreground.ok) {
+            return {
+                ok: true,
+                message: "App đã mở và đang ở foreground sau lệnh am start.",
+                log: logs.join("\n"),
+            };
+        }
+    }
+
+    return {
+        ok: false,
+        message:
+            `Không xác nhận được app đang mở. Package cần mở: ${input.packageName}. ` +
+            `Package hiện tại: ${foreground.currentPackage || "không đọc được"}.`,
+        log: logs.join("\n"),
+    };
+}
+async function runUiScenario(input: {
+    adbCmd: string;
+    adbBase: string[];
+    outputDir: string;
+    packageName: string;
+    actions: UiTestAction[];
+}) {
+    const screenshots: Array<{
+        screenKey: string;
+        label: string;
+        path: string;
+        url: string;
+        mimeType: string;
+    }> = [];
+
+    const logs: Array<{ label: string; content: string }> = [];
+
+    for (const action of input.actions) {
+        if (action.type === "wait") {
+            await new Promise((resolve) => setTimeout(resolve, Number(action.ms || 1000)));
+            continue;
+        }
+
+        if (action.type === "pressBack") {
+            await runText(
+                input.adbCmd,
+                [...input.adbBase, "shell", "input", "keyevent", "4"],
+                undefined,
+                30_000
+            );
+            continue;
+        }
+
+        if (action.type === "tapTag") {
+            const result = await tapByTestTag({
+                adbCmd: input.adbCmd,
+                adbBase: input.adbBase,
+                tag: action.tag,
+            });
+
+            logs.push({
+                label: `UI action tapTag ${action.tag}`,
+                content: result.message,
+            });
+
+            if (!result.ok) {
+                return {
+                    ok: false as const,
+                    screenshots,
+                    logs,
+                    message: result.message,
+                };
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            continue;
+        }
+
+        if (action.type === "textTag") {
+            const result = await textByTestTag({
+                adbCmd: input.adbCmd,
+                adbBase: input.adbBase,
+                tag: action.tag,
+                value: action.value,
+            });
+
+            logs.push({
+                label: `UI action textTag ${action.tag}`,
+                content: result.message,
+            });
+
+            if (!result.ok) {
+                return {
+                    ok: false as const,
+                    screenshots,
+                    logs,
+                    message: result.message,
+                };
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 800));
+            continue;
+        }
+
+        if (action.type === "screenshot") {
+            const screenshot = await captureScreenshot({
+                adbCmd: input.adbCmd,
+                adbBase: input.adbBase,
+                outputDir: input.outputDir,
+                packageName: input.packageName,
+                screenKey: action.screenKey,
+            });
+
+            if (!screenshot.ok) {
+                return {
+                    ok: false as const,
+                    screenshots,
+                    logs,
+                    message: screenshot.error,
+                };
+            }
+
+            screenshots.push({
+                screenKey: action.screenKey,
+                label: action.screenKey,
+                path: screenshot.path,
+                url: screenshot.url,
+                mimeType: "image/png",
+            });
+
+            continue;
+        }
+    }
+
+    return {
+        ok: true as const,
+        screenshots,
+        logs,
+        message: "Đã chạy xong kịch bản UI.",
+    };
+}
 async function captureScreenshot(input: {
+    screenKey?: string;
     adbCmd: string;
     adbBase: string[];
     outputDir: string;
     packageName: string;
 }) {
     // Chờ app qua splash screen và Compose render xong.
-    await new Promise((resolve) => setTimeout(resolve, 8000));
+    await new Promise((resolve) => setTimeout(resolve, 1200));
 
     let finalScreenshotBuffer: Buffer | null = null;
     let lastScreenshotError = "";
@@ -1135,10 +1631,10 @@ async function captureScreenshot(input: {
     }
 
     const safePackage = input.packageName.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const screenshotName = `${Date.now()}-${safePackage}-home.png`;
+    const safeScreenKey = String(input.screenKey || "home").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const screenshotName = `${Date.now()}-${safePackage}-${safeScreenKey}.png`;
     const screenshotPath = path.join(input.outputDir, screenshotName);
     const screenshotUrl = `/uploads/runner-artifacts/${screenshotName}`;
-
     await fsp.writeFile(screenshotPath, finalScreenshotBuffer);
 
     return {
@@ -1148,13 +1644,15 @@ async function captureScreenshot(input: {
         error: "",
     };
 }
-
 export async function runAndroidProjectRuntime(input: {
     sourceArchive: SourceArchive;
     repositoryUrl?: string | null;
     assignmentAttachments?: AssignmentAttachment[];
+    assignmentRunnerConfig?: AssignmentRunnerConfig;
     adbSerial?: string;
 }): Promise<RunnerReportInput> {
+    console.time("[RUNTIME-TIME] total");
+
     const checks: RunnerCheck[] = [];
     const logs: Array<{ label: string; content: string }> = [];
 
@@ -1178,7 +1676,9 @@ export async function runAndroidProjectRuntime(input: {
         };
     }
 
-    const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), "android-runtime-"));
+    const runnerRoot = process.env.ANDROID_RUNNER_TMP || os.tmpdir();
+    await fsp.mkdir(runnerRoot, { recursive: true });
+    const tempDir = await fsp.mkdtemp(path.join(runnerRoot, "android-runtime-"));
     const outputDir = path.join(process.cwd(), "public", "uploads", "runner-artifacts");
     await fsp.mkdir(outputDir, { recursive: true });
 
@@ -1556,17 +2056,70 @@ export async function runAndroidProjectRuntime(input: {
                 message: "Cài APK thành công.",
             })
         );
-
-        const launch = await runTextLive(
+        await runText(
             adbCmd,
-            [...adbBase, "shell", "monkey", "-p", packageName, "-c", "android.intent.category.LAUNCHER", "1"],
+            [...adbBase, "shell", "pm", "clear", packageName],
             undefined,
             30_000
         );
 
+        await runText(
+            adbCmd,
+            [...adbBase, "shell", "settings", "put", "global", "window_animation_scale", "0"],
+            undefined,
+            30_000
+        );
+
+        await runText(
+            adbCmd,
+            [...adbBase, "shell", "settings", "put", "global", "transition_animation_scale", "0"],
+            undefined,
+            30_000
+        );
+
+        await runText(
+            adbCmd,
+            [...adbBase, "shell", "settings", "put", "global", "animator_duration_scale", "0"],
+            undefined,
+            30_000
+        );
+        await runText(
+            adbCmd,
+            [...adbBase, "shell", "pm", "clear", packageName],
+            undefined,
+            30_000
+        );
+
+        await runText(
+            adbCmd,
+            [...adbBase, "shell", "settings", "put", "global", "window_animation_scale", "0"],
+            undefined,
+            30_000
+        );
+
+        await runText(
+            adbCmd,
+            [...adbBase, "shell", "settings", "put", "global", "transition_animation_scale", "0"],
+            undefined,
+            30_000
+        );
+
+        await runText(
+            adbCmd,
+            [...adbBase, "shell", "settings", "put", "global", "animator_duration_scale", "0"],
+            undefined,
+            30_000
+        );
+
+        const launch = await launchAppAndVerify({
+            adbCmd,
+            adbBase,
+            packageName,
+        });
+
         logs.push({
             label: "ADB launch log",
-            content: compactLog(launch.stdout, launch.stderr, 12000),
+            content: compactLog(launch.log, "", 12000),
         });
 
         if (!launch.ok) {
@@ -1582,11 +2135,11 @@ export async function runAndroidProjectRuntime(input: {
                         code: "app_launch",
                         label: "Mở app",
                         status: "failed",
-                        message: "Cài được APK nhưng không mở được app.",
+                        message: launch.message,
                     }),
                 ],
                 logs,
-                rawSummary: "App không mở được sau khi cài.",
+                rawSummary: launch.message,
             };
         }
 
@@ -1599,14 +2152,62 @@ export async function runAndroidProjectRuntime(input: {
             })
         );
 
-        const screenshot = await captureScreenshot({
+        const runnerConfig = input.assignmentRunnerConfig || {};
+        const uiActions = Array.isArray(runnerConfig.uiActions)
+            ? runnerConfig.uiActions
+            : [];
+
+        const uiScreens = Array.isArray(runnerConfig.uiScreens)
+            ? runnerConfig.uiScreens
+            : [];
+
+        const finalActions: UiTestAction[] =
+            uiActions.length > 0
+                ? uiActions
+                : [
+                    {
+                        type: "wait",
+                        ms: 8000,
+                    },
+                    {
+                        type: "screenshot",
+                        screenKey: "ui-01-home",
+                    },
+                ];
+
+        const scenario = await runUiScenario({
             adbCmd,
             adbBase,
             outputDir,
             packageName,
+            actions: finalActions,
         });
 
-        if (!screenshot.ok) {
+        logs.push(...scenario.logs);
+
+        if (!scenario.ok) {
+            return {
+                runtimeStatus: "screenshot_failed",
+                buildPassed: true,
+                testPassed: false,
+                apkPath,
+                packageName,
+                screenshots: scenario.screenshots,
+                checks: [
+                    ...checks,
+                    makeCheck({
+                        code: "ui_scenario",
+                        label: "Chạy kịch bản UI bằng testTag",
+                        status: "failed",
+                        message: scenario.message,
+                    }),
+                ],
+                logs,
+                rawSummary: `App đã chạy được nhưng lỗi kịch bản UI/testTag: ${scenario.message}`,
+            };
+        }
+
+        if (scenario.screenshots.length === 0) {
             return {
                 runtimeStatus: "screenshot_failed",
                 buildPassed: true,
@@ -1619,17 +2220,11 @@ export async function runAndroidProjectRuntime(input: {
                         code: "screenshot",
                         label: "Chụp giao diện thật",
                         status: "failed",
-                        message: "App mở được nhưng không chụp được screenshot.",
+                        message: "Kịch bản UI chạy xong nhưng không có bước screenshot nào.",
                     }),
                 ],
-                logs: [
-                    ...logs,
-                    {
-                        label: "Screenshot log",
-                        content: screenshot.error,
-                    },
-                ],
-                rawSummary: "Không chụp được screenshot từ emulator.",
+                logs,
+                rawSummary: "Không có screenshot nào được sinh ra từ kịch bản UI.",
             };
         }
 
@@ -1638,45 +2233,134 @@ export async function runAndroidProjectRuntime(input: {
                 code: "screenshot",
                 label: "Chụp giao diện thật",
                 status: "passed",
-                message: "Đã chụp được giao diện thật từ emulator.",
-                evidence: [screenshot.url],
+                message: `Đã chụp được ${scenario.screenshots.length} giao diện thật từ emulator.`,
+                evidence: scenario.screenshots.map((shot) => shot.url),
             })
         );
 
-        const baselineUrl = findBaselineScreenshot(input.assignmentAttachments);
+        checks.push(
+            makeCheck({
+                code: "ui_scenario",
+                label: "Chạy kịch bản UI bằng testTag",
+                status: "passed",
+                message: "Đã chạy xong kịch bản UI/testTag.",
+                evidence: scenario.screenshots.map((shot) => shot.url),
+            })
+        );
 
-        const visualComparison = await compareStudentScreenshotWithBaseline({
-            studentScreenshotPath: screenshot.path,
-            studentScreenshotUrl: screenshot.url,
-            baselineUrl,
-            outputDir,
-        });
+        const visualResults: Array<{
+            screenKey: string;
+            label: string;
+            similarity: number;
+            diffPercent?: number | null;
+            baselineUrl?: string;
+            studentUrl?: string;
+            diffUrl?: string;
+            message?: string;
+        }> = [];
 
-        if (baselineUrl && visualComparison) {
-            checks.push(
-                makeCheck({
-                    code: "visual_compare",
-                    label: "So sánh với giao diện chuẩn",
-                    status: visualComparison.similarity >= 70 ? "passed" : "warning",
-                    message: `Độ giống giao diện: ${visualComparison.similarity}%.`,
-                    evidence: [
-                        visualComparison.baselineUrl || "",
-                        visualComparison.studentUrl || "",
-                        visualComparison.diffUrl || "",
-                    ].filter(Boolean),
-                })
+        const artifacts: Array<{
+            label: string;
+            url: string;
+            mimeType: string;
+        }> = [];
+
+        for (const shot of scenario.screenshots) {
+            const screenConfig = uiScreens.find(
+                (item) => item.screenKey === shot.screenKey
             );
-        } else if (!baselineUrl) {
+
+            const baselineUrl = screenConfig?.baselineUrl || null;
+            const threshold = Number(screenConfig?.threshold || 70);
+
+            if (!baselineUrl) {
+                checks.push(
+                    makeCheck({
+                        code: `visual_compare_${shot.screenKey}`,
+                        label: `So sánh UI ${screenConfig?.label || shot.screenKey}`,
+                        status: "not_run",
+                        message: `Chưa có ảnh chuẩn baselineUrl cho ${shot.screenKey}.`,
+                        evidence: [shot.url],
+                    })
+                );
+
+                continue;
+            }
+
+            const comparison = await compareStudentScreenshotWithBaseline({
+                studentScreenshotPath: shot.path,
+                studentScreenshotUrl: shot.url,
+                baselineUrl,
+                outputDir,
+            });
+
+            if (!comparison) {
+                checks.push(
+                    makeCheck({
+                        code: `visual_compare_${shot.screenKey}`,
+                        label: `So sánh UI ${screenConfig?.label || shot.screenKey}`,
+                        status: "not_run",
+                        message: `Không so sánh được ${shot.screenKey}.`,
+                        evidence: [baselineUrl, shot.url].filter(Boolean),
+                    })
+                );
+
+                continue;
+            }
+
+            visualResults.push({
+                screenKey: shot.screenKey,
+                label: screenConfig?.label || shot.label,
+                ...comparison,
+            });
+
+            if (comparison.diffUrl) {
+                artifacts.push({
+                    label: `Ảnh diff ${shot.screenKey}`,
+                    url: comparison.diffUrl,
+                    mimeType: "image/png",
+                });
+            }
+
             checks.push(
                 makeCheck({
-                    code: "visual_compare",
-                    label: "So sánh với giao diện chuẩn",
-                    status: "not_run",
-                    message: "Giáo viên chưa upload ảnh giao diện chuẩn loại template có tên ui-* hoặc baseline-* nên chưa so sánh được.",
+                    code: `visual_compare_${shot.screenKey}`,
+                    label: `So sánh UI ${screenConfig?.label || shot.screenKey}`,
+                    status: comparison.similarity >= threshold ? "passed" : "warning",
+                    message: `Độ giống ${shot.screenKey}: ${comparison.similarity}%. Ngưỡng đạt: ${threshold}%.`,
+                    evidence: [
+                        comparison.baselineUrl || baselineUrl,
+                        comparison.studentUrl || shot.url,
+                        comparison.diffUrl || "",
+                    ].filter(Boolean),
                 })
             );
         }
 
+        const avgSimilarity =
+            visualResults.length > 0
+                ? Math.round(
+                (visualResults.reduce((sum, item) => sum + item.similarity, 0) /
+                    visualResults.length) *
+                100
+            ) / 100
+                : null;
+
+        const firstVisualComparison = visualResults[0] ?? null;
+
+        const firstVisualResult = visualResults[0] ?? null;
+
+        const visualComparison =
+            firstVisualResult
+                ? {
+                    similarity: Number(firstVisualResult.similarity ?? 0),
+                    diffPercent: Number(firstVisualResult.diffPercent ?? 0),
+                    baselineUrl: String(firstVisualResult.baselineUrl || ""),
+                    studentUrl: String(firstVisualResult.studentUrl || ""),
+                    diffUrl: String(firstVisualResult.diffUrl || ""),
+                    message: String(firstVisualResult.message || ""),
+                }
+                : null;
         return {
             runtimeStatus: "passed",
             buildPassed: true,
@@ -1685,28 +2369,20 @@ export async function runAndroidProjectRuntime(input: {
             packageName,
             checks,
             logs,
-            visualSimilarity: visualComparison?.similarity ?? null,
+            visualSimilarity: avgSimilarity,
             visualComparison,
-            screenshots: [
-                {
-                    label: "Giao diện thật của sinh viên",
-                    path: screenshot.path,
-                    url: screenshot.url,
-                    mimeType: "image/png",
-                },
-            ],
-            artifacts: visualComparison?.diffUrl
-                ? [
-                    {
-                        label: "Ảnh diff so với giao diện chuẩn",
-                        url: visualComparison.diffUrl,
-                        mimeType: "image/png",
-                    },
-                ]
-                : [],
-            rawSummary: visualComparison
-                ? `Bài chạy được. Độ giống giao diện với ảnh chuẩn: ${visualComparison.similarity}%.`
-                : "Bài chạy được và đã sinh screenshot thật, nhưng chưa có ảnh chuẩn UI riêng để so sánh.",
+            visualComparisons: visualResults,
+            screenshots: scenario.screenshots.map((shot) => ({
+                label: shot.label || shot.screenKey,
+                path: shot.path,
+                url: shot.url,
+                mimeType: shot.mimeType,
+            })),
+            artifacts,
+            rawSummary:
+                avgSimilarity !== null
+                    ? `Bài chạy được. Độ giống UI trung bình: ${avgSimilarity}%.`
+                    : "Bài chạy được và đã sinh screenshot thật, nhưng chưa có đủ ảnh chuẩn UI để so sánh.",
         };
     } catch (error) {
         return {

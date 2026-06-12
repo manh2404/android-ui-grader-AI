@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-
+import UiScenarioEditor from "@/components/grading_detail/UiScenarioEditor";
+import {
+    DEFAULT_ANDROID_UI_RUNNER_CONFIG,
+    EMPTY_RUNNER_CONFIG,
+    type UiRunnerConfig,
+} from "@/lib/ui-runner-config";
 type Classroom = {
     _id: string;
     name: string;
@@ -369,6 +374,9 @@ export default function CreateAssignmentPage() {
     const [resourceFiles, setResourceFiles] = useState<File[]>([]);
     const [rubricFiles, setRubricFiles] = useState<File[]>([]);
     const [templateFiles, setTemplateFiles] = useState<File[]>([]);
+    const [runnerConfig, setRunnerConfig] = useState<UiRunnerConfig>(
+        DEFAULT_ANDROID_UI_RUNNER_CONFIG
+    );
 
     // rubric
     const [rubricPreview, setRubricPreview] = useState<RubricCriterion[]>([]);
@@ -453,7 +461,7 @@ export default function CreateAssignmentPage() {
 
             const submissionPolicy = {
                 acceptedFileTypes: ["zip"],
-                maxFileSizeMb: 100,
+                maxFileSizeMb: 256,
                 maxAttempts: form.allowResubmit ? 999999 : 1,
                 requireZip: true,
                 allowGithubUrl: true,
@@ -463,8 +471,9 @@ export default function CreateAssignmentPage() {
             const normalizedLanguage = (form.language || "kotlin").trim().toLowerCase();
             const isAndroidKotlin = normalizedLanguage === "kotlin";
 
-            const runnerConfig = isAndroidKotlin
+            const runnerConfigPayload = isAndroidKotlin
                 ? {
+                    ...runnerConfig,
                     requiredFiles: [
                         "settings.gradle.kts",
                         "app/build.gradle.kts",
@@ -474,16 +483,9 @@ export default function CreateAssignmentPage() {
                     buildCommand: "./gradlew assembleDebug",
                     runCommand: "",
                     deviceProfiles: ["small-phone"],
-                    screenshotTargets: ["form-screen", "list-screen"],
+                    screenshotTargets: runnerConfig.uiScreens.map((item) => item.screenKey),
                 }
-                : {
-                    requiredFiles: [],
-                    entryFiles: [],
-                    buildCommand: "",
-                    runCommand: "",
-                    deviceProfiles: [],
-                    screenshotTargets: [],
-                };
+                : EMPTY_RUNNER_CONFIG;
 
             const aiConfig = {
                 enabled: true,
@@ -499,7 +501,7 @@ export default function CreateAssignmentPage() {
             body.set("rubricText", form.rubricText);
             body.set("rubric", JSON.stringify(rubric));
             body.set("submissionPolicy", JSON.stringify(submissionPolicy));
-            body.set("runnerConfig", JSON.stringify(runnerConfig));
+            body.set("runnerConfig", JSON.stringify(runnerConfigPayload));
             body.set("aiConfig", JSON.stringify(aiConfig));
             body.set("startAt", new Date(form.startAt).toISOString());
             body.set("dueAt", new Date(form.dueAt).toISOString());
@@ -780,6 +782,13 @@ export default function CreateAssignmentPage() {
                             </div>
                         </div>
                     </section>
+
+                    {form.language.trim().toLowerCase() === "kotlin" && (
+                        <UiScenarioEditor
+                            value={runnerConfig}
+                            onChange={setRunnerConfig}
+                        />
+                    )}
 
                     <FileListCard
                         title="File đính kèm đề bài"

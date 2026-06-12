@@ -197,6 +197,10 @@ type RunnerConfigLike = {
     runCommand?: string;
     deviceProfiles?: string[];
     screenshotTargets?: string[];
+    scenarioId?: string;
+    scenarioName?: string;
+    uiScreens?: any[];
+    uiActions?: any[];
 } | null | undefined;
 
 function buildRequiredFileChecks(
@@ -263,6 +267,7 @@ export async function runRunnerForSubmission(
             sourceArchive: submission.sourceArchive ?? null,
             repositoryUrl: submission.repositoryUrl ?? null,
             assignmentAttachments: submission.assignmentSnapshot?.attachments ?? [],
+            assignmentRunnerConfig: submission.assignmentSnapshot?.runnerConfig ?? null,
             adbSerial: process.env.ANDROID_ADB_SERIAL || undefined,
         });
 
@@ -286,6 +291,7 @@ export async function runRunnerForSubmission(
             artifacts: runtimeReport.artifacts ?? [],
             logs: runtimeReport.logs ?? [],
             visualComparison: runtimeReport.visualComparison ?? null,
+            visualComparisons: runtimeReport.visualComparisons ?? [],
             checks: runtimeReport.checks ?? [],
             rawSummary: runtimeReport.rawSummary ?? "Runner runtime đã chạy từ GitHub.",
         };
@@ -564,6 +570,7 @@ export async function runRunnerForSubmission(
                 sourceArchive: submission.sourceArchive ?? null,
                 repositoryUrl: submission.repositoryUrl ?? null,
                 assignmentAttachments: submission.assignmentSnapshot?.attachments ?? [],
+                assignmentRunnerConfig: submission.assignmentSnapshot?.runnerConfig ?? null,
                 adbSerial: process.env.ANDROID_ADB_SERIAL || undefined,
             });
 
@@ -607,7 +614,7 @@ export async function runRunnerForSubmission(
             logs: runtimeReport?.logs ?? [],
 
             visualComparison: runtimeReport?.visualComparison ?? null,
-
+            visualComparisons: runtimeReport?.visualComparisons ?? [],
             checks: allChecks,
 
             rawSummary: runtimeReport

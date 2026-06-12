@@ -4,7 +4,6 @@ export type GradeStatus =
     | "auto_graded"
     | "needs_teacher_review"
     | "overridden";
-// chạy giao diện apk
 export type RuntimeStatus =
     | "not_run"
     | "project_invalid"
@@ -29,41 +28,14 @@ export interface RunnerLog {
 }
 
 export interface VisualComparisonResult {
+    screenKey?: string;
+    label?: string;
     similarity: number;
-    diffPercent: number;
+    diffPercent?: number | null;
     baselineUrl?: string;
     studentUrl?: string;
     diffUrl?: string;
     message?: string;
-}
-
-export interface RunnerReportInput {
-    buildPassed?: boolean | null;
-    testPassed?: boolean | null;
-    visualSimilarity?: number | null;
-    accessibilityScore?: number | null;
-    checks?: RunnerCheck[];
-    rawSummary?: string | null;
-
-    runtimeStatus?: RuntimeStatus;
-    packageName?: string | null;
-    apkPath?: string | null;
-
-    screenshots?: RunnerArtifact[];
-    artifacts?: RunnerArtifact[];
-    logs?: RunnerLog[];
-
-    visualComparison?: VisualComparisonResult | null;
-}
-export interface RubricCriterion {
-    code: string;
-    title: string;
-    description?: string;
-    maxPoints: number;
-    gradingSource: GradingSource;
-    requiredEvidence?: string[];
-    passThreshold?: number | null;
-    notes?: string;
 }
 
 export interface RunnerCheck {
@@ -84,6 +56,28 @@ export interface RunnerReportInput {
     accessibilityScore?: number | null;
     checks?: RunnerCheck[];
     rawSummary?: string | null;
+
+    runtimeStatus?: RuntimeStatus;
+    packageName?: string | null;
+    apkPath?: string | null;
+
+    screenshots?: RunnerArtifact[];
+    artifacts?: RunnerArtifact[];
+    logs?: RunnerLog[];
+
+    visualComparison?: VisualComparisonResult | null;
+    visualComparisons?: VisualComparisonResult[];
+}
+
+export interface RubricCriterion {
+    code: string;
+    title: string;
+    description?: string;
+    maxPoints: number;
+    gradingSource: GradingSource;
+    requiredEvidence?: string[];
+    passThreshold?: number | null;
+    notes?: string;
 }
 
 export interface AiCriterionFeedback {

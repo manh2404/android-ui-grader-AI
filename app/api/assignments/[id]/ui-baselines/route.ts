@@ -96,13 +96,14 @@ export async function POST(
         ? assignment.runnerConfig.uiScreens
         : [];
 
+    const oldScreen = uiScreens.find((item: any) => item.screenKey === screenKey);
     const nextUiScreens = [
         ...uiScreens.filter((item: any) => item.screenKey !== screenKey),
         {
             screenKey,
             label,
             baselineUrl: outputUrl,
-            threshold: 70,
+            threshold: Number(oldScreen?.threshold || 70),
         },
     ];
 
