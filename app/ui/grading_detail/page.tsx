@@ -1,12 +1,12 @@
 "use client";
 
+import { Suspense } from "react";
 import { GradingHeader } from "@/components/grading_detail/GradingHeader";
 import { GradingSidebar } from "@/components/grading_detail/GradingSidebar";
 import { StudentDetailPanel } from "@/components/grading_detail/StudentDetailPanel";
 import { useGradingDetail } from "./hook/use_Grading_detail";
-import {mode} from "d3-array";
 
-export default function GradingDetailPage() {
+function GradingDetailContent() {
     const grading = useGradingDetail();
 
     return (
@@ -67,5 +67,19 @@ export default function GradingDetailPage() {
                 />
             </div>
         </div>
+    );
+}
+
+export default function GradingDetailPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="p-6 text-slate-500">
+                    Đang tải trang chấm bài...
+                </div>
+            }
+        >
+            <GradingDetailContent />
+        </Suspense>
     );
 }

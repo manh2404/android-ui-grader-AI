@@ -15,17 +15,18 @@ type CurrentUser = {
 };
 
 export function AppHeader({ children }: { children: ReactNode }) {
-    const [collapsed, setCollapsed] = useState(false);
-    const [mobileOpen, setMobileOpen] = useState(false);
+    const [sidebarExpanded, setSidebarExpanded] = useState(false);
+    const [topMenuExpanded, setTopMenuExpanded] = useState(false);
     const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+
     const pathname = usePathname();
-    const isGradingDetailPage = pathname?.startsWith("/ui/grading_detail");
 
     useEffect(() => {
         const loadMe = async () => {
             try {
                 const res = await fetch("/api/auth/me", { cache: "no-store" });
                 if (!res.ok) return;
+
                 const json = await res.json();
                 setCurrentUser(json.user || null);
             } catch {}
@@ -38,9 +39,14 @@ export function AppHeader({ children }: { children: ReactNode }) {
         const role = currentUser?.role;
 
         return navItems.filter((item) => {
-            if (item.href === "/ui/create_assignment" || item.href === "/ui/server_config" || item.href === "/ui/grading_detail") {
+            if (
+                item.href === "/ui/create_assignment" ||
+                item.href === "/ui/server_config" ||
+                item.href === "/ui/grading_detail"
+            ) {
                 return role === "teacher" || role === "admin";
             }
+
             return true;
         });
     }, [currentUser?.role]);
@@ -48,40 +54,36 @@ export function AppHeader({ children }: { children: ReactNode }) {
     return (
         <div className="min-h-screen bg-[#f6f7fb] text-slate-900">
             <AppSidebar
-                collapsed={collapsed}
-                mobileOpen={mobileOpen}
-                onCloseMobile={() => setMobileOpen(false)}
+                collapsed={!sidebarExpanded}
+                mobileOpen={false}
+                onCloseMobile={() => setSidebarExpanded(false)}
+                onMouseEnter={() => setSidebarExpanded(true)}
+                onMouseLeave={() => setSidebarExpanded(false)}
                 currentUserRole={currentUser?.role}
             />
 
-            <div
-                className={`min-h-screen transition-all duration-300 ${
-                    collapsed ? "lg:pl-[92px]" : "lg:pl-[272px]"
-                }`}
-            >
-                <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-                    <div className="flex h-20 items-center justify-between px-4 sm:px-6 lg:px-8">
-                        <div className="flex items-center gap-4">
-                            <button
-                                type="button"
-                                onClick={() => setMobileOpen(true)}
-                                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100 lg:hidden"
-                                aria-label="Mở menu"
-                            >
-                                <span className="material-symbols-outlined">menu</span>
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => setCollapsed((prev) => !prev)}
-                                className="hidden h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100 lg:inline-flex"
-                                aria-label="Thu gọn menu"
-                            >
-                                <span className="material-symbols-outlined">
-                                    {collapsed ? "menu" : "menu_open"}
-                                </span>
-                            </button>
+            <div className="min-h-screen transition-all duration-300 lg:pl-[92px]">
+                <header
+                    onMouseEnter={() => setTopMenuExpanded(true)}
+                    onMouseLeave={() => setTopMenuExpanded(false)}
+                    className={`sticky top-0 z-30 overflow-hidden border-b border-slate-200 bg-white/95 backdrop-blur transition-all duration-300 ${
+                        topMenuExpanded ? "h-20" : "h-8"
+                    }`}
+                >
+                    {!topMenuExpanded && (
+                        <div className="h-4 w-full cursor-pointer bg-white/95">
+                            <div className="mx-auto h-full max-w-7xl border-b border-slate-100" />
                         </div>
+                    )}
+
+                    <div
+                        className={`flex h-20 items-center justify-between px-4 transition-all duration-300 sm:px-6 lg:px-8 ${
+                            topMenuExpanded
+                                ? "translate-y-0 opacity-100"
+                                : "pointer-events-none -translate-y-4 opacity-0"
+                        }`}
+                    >
+                        <div className="hidden w-2 lg:block" />
 
                         <nav className="hidden items-center gap-2 xl:flex">
                             {visibleNavItems.map((item) => {

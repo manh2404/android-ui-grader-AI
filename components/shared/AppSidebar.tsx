@@ -9,6 +9,8 @@ type AppSidebarProps = {
     collapsed: boolean;
     mobileOpen: boolean;
     onCloseMobile: () => void;
+    onMouseEnter?: () => void;
+    onMouseLeave?: () => void;
     currentUserRole?: "admin" | "teacher" | "User";
 };
 
@@ -16,6 +18,8 @@ export function AppSidebar({
                                collapsed,
                                mobileOpen,
                                onCloseMobile,
+                               onMouseEnter,
+                               onMouseLeave,
                                currentUserRole,
                            }: AppSidebarProps) {
     const pathname = usePathname();
@@ -24,9 +28,14 @@ export function AppSidebar({
 
     const visibleNavItems = useMemo(() => {
         return navItems.filter((item) => {
-            if (item.href === "/ui/create_assignment" || item.href === "/ui/server_config" || item.href === "/ui/grading_detail") {
+            if (
+                item.href === "/ui/create_assignment" ||
+                item.href === "/ui/server_config" ||
+                item.href === "/ui/grading_detail"
+            ) {
                 return currentUserRole === "teacher" || currentUserRole === "admin";
             }
+
             return true;
         });
     }, [currentUserRole]);
@@ -67,32 +76,43 @@ export function AppSidebar({
                     mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
             />
+
             <aside
-                className={`fixed left-0 top-0 z-40 h-screen border-r border-slate-200 bg-white transition-all duration-300
-        ${collapsed ? "lg:w-[92px]" : "lg:w-[272px]"}
-        ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-        w-[272px]`}
+                onMouseEnter={onMouseEnter}
+                onMouseLeave={onMouseLeave}
+                className={`fixed left-0 top-0 z-40 h-screen border-r border-slate-200 bg-white shadow-sm transition-[width,transform] duration-300 ease-out will-change-[width]
+                ${collapsed ? "lg:w-[92px]" : "lg:w-[272px]"}
+                ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
+                w-[272px]`}
             >
-                <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-4">
+                <div className="flex h-20 items-center border-b border-slate-200 px-3">
                     <Link
                         href="/ui/dashboard"
-                        className="flex min-w-0 items-center gap-3"
+                        className="grid w-full grid-cols-[56px_minmax(0,1fr)] items-center"
                         aria-label="Về trang tổng quan"
                     >
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-sm">
-                            <span className="material-symbols-outlined">auto_stories</span>
+                        <div className="flex h-14 w-14 items-center justify-center">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-sm">
+                                <span className="material-symbols-outlined">
+                                    auto_stories
+                                </span>
+                            </div>
                         </div>
 
-                        {!collapsed && (
-                            <div className="min-w-0">
-                                <p className="truncate text-lg font-bold text-slate-900">
-                                    AutoGrade
-                                </p>
-                                <p className="truncate text-xs text-slate-500">
-                                    Hệ thống quản lý lớp học
-                                </p>
-                            </div>
-                        )}
+                        <div
+                            className={`min-w-0 overflow-hidden transition-all duration-300 ease-out ${
+                                collapsed
+                                    ? "max-w-0 translate-x-2 opacity-0"
+                                    : "max-w-[180px] translate-x-0 opacity-100"
+                            }`}
+                        >
+                            <p className="truncate text-lg font-bold text-slate-900">
+                                AutoGrade
+                            </p>
+                            <p className="truncate text-xs text-slate-500">
+                                Hệ thống quản lý lớp học
+                            </p>
+                        </div>
                     </Link>
                 </div>
 
@@ -106,17 +126,27 @@ export function AppSidebar({
                                 href={item.href}
                                 onClick={onCloseMobile}
                                 title={collapsed ? item.label : undefined}
-                                className={`flex items-center rounded-2xl px-3 py-3 text-sm font-medium transition ${
+                                className={`grid grid-cols-[44px_minmax(0,1fr)] items-center rounded-2xl px-2 py-2.5 text-sm font-medium transition-colors duration-200 ${
                                     active
                                         ? "bg-orange-50 text-orange-600"
                                         : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                                } ${collapsed ? "justify-center" : "gap-3"}`}
+                                }`}
                             >
-                                <span className="material-symbols-outlined text-[22px]">
-                                    {item.icon}
+                                <span className="flex h-10 w-10 shrink-0 items-center justify-center">
+                                    <span className="material-symbols-outlined text-[22px]">
+                                        {item.icon}
+                                    </span>
                                 </span>
 
-                                {!collapsed && <span>{item.label}</span>}
+                                <span
+                                    className={`overflow-hidden whitespace-nowrap transition-all duration-300 ease-out ${
+                                        collapsed
+                                            ? "max-w-0 translate-x-2 opacity-0"
+                                            : "max-w-[180px] translate-x-0 opacity-100"
+                                    }`}
+                                >
+                                    {item.label}
+                                </span>
                             </Link>
                         );
                     })}
@@ -125,17 +155,30 @@ export function AppSidebar({
                         type="button"
                         onClick={handleLogout}
                         disabled={loggingOut}
-                        className="mt-3 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-70"
+                        title={collapsed ? "Đăng xuất" : undefined}
+                        className="mt-3 grid w-full grid-cols-[44px_minmax(0,1fr)] items-center rounded-2xl px-2 py-2.5 text-left text-red-600 transition-colors duration-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-70"
                     >
-                        <span className="material-symbols-outlined">logout</span>
-
-                        {!collapsed && (
-                            <span className="font-medium">
-                                {loggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center">
+                            <span className="material-symbols-outlined">
+                                logout
                             </span>
-                        )}
+                        </span>
+
+                        <span
+                            className={`overflow-hidden whitespace-nowrap font-medium transition-all duration-300 ease-out ${
+                                collapsed
+                                    ? "max-w-0 translate-x-2 opacity-0"
+                                    : "max-w-[180px] translate-x-0 opacity-100"
+                            }`}
+                        >
+                            {loggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
+                        </span>
                     </button>
                 </nav>
+
+                {collapsed && (
+                    <div className="pointer-events-none absolute left-full top-0 hidden h-full w-6 lg:block" />
+                )}
             </aside>
         </>
     );
