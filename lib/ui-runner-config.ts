@@ -63,7 +63,7 @@ export const UI_SCENARIO_TEMPLATES: UiRunnerConfig[] = [
                 threshold: 70,
             },
             {
-                screenKey: "ui-03-detail",
+                screenKey: "ui-03-form-selected",
                 label: "Màn hình chi tiết",
                 threshold: 70,
             },
